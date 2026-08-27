@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>المقرأة — حجز مواعيد الحضور</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Aref+Ruqaa:wght@400;700&family=Tajawal:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#16333A;
+    --ink-soft:#3E5C5C;
+    --paper:#F1ECDF;
+    --paper-deep:#E7DFC9;
+    --gold:#B8923F;
+    --gold-light:#E4C77A;
+    --clay:#8B4A3D;
+    --sage:#4C7A64;
+    --sage-light:#E4EEE7;
+    --clay-light:#F3E5E1;
+    --font-display:'Aref Ruqaa', serif;
+    --font-body:'Tajawal', sans-serif;
+    --radius:14px;
+    --shadow:0 6px 24px rgba(22,51,58,0.12);
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    font-family:var(--font-body);
+    background:var(--paper);
+    color:var(--ink);
+    min-height:100vh;
+    background-image:
+      radial-gradient(circle at 15% 8%, rgba(184,146,63,0.08), transparent 40%),
+      radial-gradient(circle at 90% 85%, rgba(22,51,58,0.06), transparent 45%);
+  }
+  .wrap{max-width:640px; margin:0 auto; padding:0 18px 60px;}
+
+  /* ---------- Header ---------- */
+  header.app-head{
+    text-align:center;
+    padding:38px 16px 26px;
+    position:relative;
+  }
+  .star-mark{
+    width:72px; height:72px; margin:0 auto 10px;
+    animation:spin-slow 40s linear infinite;
+  }
+  @media (prefers-reduced-motion:reduce){ .star-mark{animation:none;} }
+  @keyframes spin-slow{ from{transform:rotate(0)} to{transform:rotate(360deg)} }
+  .app-head h1{
+    font-family:var(--font-display);
+    font-size:2.5rem;
+    font-weight:700;
+    color:var(--ink);
+    line-height:1.15;
+  }
+  .app-head p.desc{
+    color:var(--ink-soft);
+    font-size:0.98rem;
+    margin-top:8px;
+    max-width:440px;
+    margin-inline:auto;
+  }
+  .divider{
+    height:14px; margin:22px auto 0; max-width:280px;
+    background-image: repeating-linear-gradient(90deg, transparent 0 6px, var(--gold-light) 6px 7px, transparent 7px 26px);
+    opacity:0.7;
+  }
+
+  /* ---------- Cards / board ---------- */
+  .board{
+    background:#fff;
+    border-radius:var(--radius);
+    box-shadow:var(--shadow);
+    overflow:hidden;
+    border:1px solid var(--paper-deep);
+  }
+  .day-group{ border-bottom:1px solid var(--paper-deep); }
+  .day-group:last-child{ border-bottom:none; }
+  .day-label{
+    background:var(--ink);
+    color:var(--paper);
+    font-family:var(--font-display);
+    font-size:1.15rem;
+    padding:10px 18px;
+    letter-spacing:.3px;
+  }
+  .slot-row{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 18px;
+    gap:12px;
+    border-top:1px dashed var(--paper-deep);
+  }
+  .day-group .slot-row:first-of-type{ border-top:none; }
+  .slot-time{
+    font-weight:700; font-size:1.05rem; color:var(--ink);
+    min-width:118px;
+  }
+  .slot-note{ color:var(--ink-soft); font-size:0.85rem; margin-top:2px; }
+  .slot-main{ flex:1; }
+  .btn{
+    font-family:var(--font-body);
+    border:none; cursor:pointer;
+    border-radius:999px;
+    font-weight:700;
+    font-size:0.92rem;
+    padding:9px 20px;
+    transition:transform .12s ease, box-shadow .12s ease;
+  }
+  .btn:hover{ transform:translateY(-1px); }
+  .btn:active{ transform:translateY(0); }
+  .btn-primary{ background:var(--gold); color:#fff; box-shadow:0 3px 10px rgba(184,146,63,0.35); }
+  .btn-secondary{ background:var(--paper-deep); color:var(--ink); }
+  .btn-danger{ background:var(--clay-light); color:var(--clay); }
+  .btn-outline{ background:transparent; border:1.5px solid var(--ink-soft); color:var(--ink-soft); }
+  .btn-sm{ padding:6px 14px; font-size:0.8rem; }
+  .btn:disabled{ opacity:0.5; cursor:not-allowed; transform:none; }
+
+  .tag{
+    display:inline-block; font-size:0.75rem; font-weight:700;
+    padding:3px 10px; border-radius:999px;
+  }
+  .tag-avail{ background:var(--sage-light); color:var(--sage); }
+  .tag-booked{ background:var(--clay-light); color:var(--clay); }
+  .tag-full{ background:var(--clay-light); color:var(--clay); }
+
+  .seat-mini{ display:flex; align-items:center; gap:8px; margin-top:6px; }
+  .seat-mini .dots{ display:flex; gap:4px; }
+  .seat-mini .dot{ width:9px; height:9px; border-radius:50%; border:1.5px solid var(--gold); background:transparent; }
+  .seat-mini .dot.filled{ background:var(--gold); }
+  .seat-mini .count{ font-size:0.78rem; color:var(--ink-soft); }
+
+  .roster-list{ display:flex; flex-direction:column; gap:6px; margin-top:8px; }
+  .roster-item{
+    display:flex; align-items:center; justify-content:space-between;
+    background:var(--sage-light); border-radius:8px; padding:6px 10px; font-size:0.82rem;
+  }
+  .roster-item .name{ font-weight:700; color:var(--ink); }
+
+  .empty-state{
+    text-align:center; padding:50px 20px; color:var(--ink-soft);
+  }
+  .empty-state svg{ width:56px; height:56px; opacity:0.35; margin-bottom:12px; }
+
+  /* ---------- Footer link ---------- */
+  .foot-link{
+    text-align:center; margin-top:30px;
+  }
+  .foot-link button{
+    background:none; border:none; color:var(--ink-soft);
+    font-family:var(--font-body); font-size:0.82rem;
+    text-decoration:underline; cursor:pointer; opacity:0.75;
+  }
+
+  /* ---------- Modal ---------- */
+  .modal-backdrop{
+    position:fixed; inset:0; background:rgba(22,51,58,0.55);
+    display:flex; align-items:flex-end; justify-content:center;
+    z-index:50; padding:0;
+    animation:fadeIn .15s ease;
+  }
+  @keyframes fadeIn{ from{opacity:0} to{opacity:1} }
+  @media (min-width:520px){ .modal-backdrop{ align-items:center; } }
+  .modal{
+    background:var(--paper); width:100%; max-width:440px;
+    border-radius:20px 20px 0 0;
+    padding:26px 22px 30px;
+    box-shadow:0 -8px 30px rgba(0,0,0,0.2);
+  }
+  @media (min-width:520px){ .modal{ border-radius:20px; } }
+  .modal h3{
+    font-family:var(--font-display); font-size:1.5rem; margin-bottom:4px;
+  }
+  .modal .sub{ color:var(--ink-soft); font-size:0.88rem; margin-bottom:18px; }
+  .field{ margin-bottom:14px; }
+  .field label{ display:block; font-size:0.85rem; font-weight:700; margin-bottom:6px; color:var(--ink); }
+  .field input, .field select, .field textarea{
+    width:100%; padding:11px 14px; border-radius:10px;
+    border:1.5px solid var(--paper-deep); background:#fff;
+    font-family:var(--font-body); font-size:0.95rem; color:var(--ink);
+  }
+  .field input:focus, .field select:focus, .field textarea:focus{
+    outline:none; border-color:var(--gold);
+  }
+  .modal-actions{ display:flex; gap:10px; margin-top:20px; }
+  .modal-actions .btn{ flex:1; }
+  .err-msg{ color:var(--clay); font-size:0.85rem; margin-top:-6px; margin-bottom:12px; display:none; }
+
+  /* ---------- Admin ---------- */
+  .admin-topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    margin-bottom:18px; padding-top:20px;
+  }
+  .admin-topbar h2{ font-family:var(--font-display); font-size:1.6rem; }
+  .section-title{
+    font-family:var(--font-display); font-size:1.25rem; margin:26px 0 12px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .admin-card{
+    background:#fff; border-radius:var(--radius); box-shadow:var(--shadow);
+    padding:18px; border:1px solid var(--paper-deep);
+  }
+  .row-2{ display:flex; gap:10px; }
+  .row-2 .field{ flex:1; }
+  .login-wrap{
+    max-width:340px; margin:60px auto; text-align:center;
+  }
+  .login-wrap .star-mark{ width:52px; height:52px; }
+  .login-wrap h2{ font-family:var(--font-display); font-size:1.6rem; margin-bottom:6px; }
+  .login-wrap .sub{ color:var(--ink-soft); font-size:0.88rem; margin-bottom:22px; }
+  .pin-input{
+    width:100%; text-align:center; letter-spacing:10px; font-size:1.5rem;
+    padding:14px; border-radius:10px; border:1.5px solid var(--paper-deep);
+    font-family:var(--font-body); font-weight:700; color:var(--ink);
+  }
+  .pin-input:focus{ outline:none; border-color:var(--gold); }
+
+  .admin-slot{
+    display:flex; align-items:flex-start; justify-content:space-between;
+    padding:14px 0; border-top:1px dashed var(--paper-deep); gap:10px;
+  }
+  .admin-slot:first-child{ border-top:none; }
+  .admin-slot .meta{ font-size:0.82rem; color:var(--ink-soft); margin-top:4px; }
+  .admin-slot .actions{ display:flex; flex-direction:column; gap:6px; align-items:stretch; }
+  .booked-by{ font-weight:700; color:var(--clay); }
+
+  .toast{
+    position:fixed; bottom:22px; left:50%; transform:translateX(-50%);
+    background:var(--ink); color:#fff; padding:12px 22px; border-radius:999px;
+    font-size:0.9rem; box-shadow:0 6px 18px rgba(0,0,0,0.25); z-index:100;
+    animation:toastIn .2s ease;
+  }
+  @keyframes toastIn{ from{opacity:0; transform:translate(-50%,10px)} to{opacity:1; transform:translate(-50%,0)} }
+
+  .confirm-screen{
+    text-align:center; padding:60px 20px;
+  }
+  .confirm-screen svg{ width:64px; height:64px; color:var(--sage); margin-bottom:16px; }
+  .confirm-screen h2{ font-family:var(--font-display); font-size:1.8rem; margin-bottom:8px; }
+  .confirm-screen p{ color:var(--ink-soft); }
+  .loading{ text-align:center; padding:80px 20px; color:var(--ink-soft); }
+  .config-warning{
+    max-width:520px; margin:40px auto; background:#fff; border:1.5px solid var(--clay);
+    border-radius:var(--radius); padding:22px; text-align:center; color:var(--ink);
+  }
+  .config-warning h2{ font-family:var(--font-display); color:var(--clay); margin-bottom:8px; }
+  .config-warning code{ background:var(--paper-deep); padding:2px 6px; border-radius:4px; }
+</style>
+</head>
+<body>
+<!-- Firebase (تخزين مجاني حقيقي يشتغل بعد رفع الموقع على أي استضافة، بما فيها GitHub Pages) -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<div class="wrap" id="app"></div>
+
+<script>
+const STORAGE_KEY = 'meqraa-data';
+const MAX_SEATS = 4;
+const SLOT_MINUTES = 60;
+const TEACHER_HASH = '#teacher';
+
+/* ====== إعدادات Firebase ======
+   استبدل القيم دي بالقيم اللي هتاخدها من مشروعك على Firebase
+   (Project settings > عام > تطبيقاتك > Web app > firebaseConfig).
+   لو سبتها زي ما هي، الموقع هيوقف ويوريك رسالة توضح إنك محتاج تظبطها. */
+const firebaseConfig = {
+  apiKey: "AIzaSyDM0y-5QcKtAaG4RDkjrDFIVKCbf8JQLv8",
+  authDomain: "meqra-d7de8.firebaseapp.com",
+  projectId: "meqra-d7de8",
+  storageBucket: "meqra-d7de8.firebasestorage.app",
+  messagingSenderId: "288351239358",
+  appId: "1:288351239358:web:139d45509e7e15030532ef"
+};
+const FIRESTORE_COLLECTION = 'meqraa';
+const FIRESTORE_DOC = 'data';
+
+let db = null;
+let unsubscribeSnapshot = null;
+function isConfigMissing(){
+  return !firebaseConfig.apiKey || firebaseConfig.apiKey.indexOf('ضع-') !== -1;
+}
+let state = {
+  view: 'student', // student | confirm | adminLogin | adminSetup | admin
+  data: null,
+  loading: true,
+  selectedSlot: null,
+  lastBooking: null,
+  pinAttemptError: false,
+};
+
+const starSVG = `<svg class="star-mark" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <g fill="none" stroke="#B8923F" stroke-width="2.5">
+    <path d="M50 5 L61 39 L95 39 L67 60 L78 94 L50 73 L22 94 L33 60 L5 39 L39 39 Z"/>
+  </g>
+</svg>`;
+
+function defaultData(){
+  return { info: { name: 'المقرأة', desc: 'سجّل حضورك في الوقت المناسب لك' }, pin: null, slots: [] };
+}
+
+function renderConfigWarning(){
+  document.getElementById('app').innerHTML = `
+    <div class="config-warning">
+      <h2>الموقع محتاج إعداد Firebase الأول</h2>
+      <p>افتح ملف الصفحة وحط بيانات مشروعك في <code>firebaseConfig</code> بدل القيم اللي بتبدأ بـ "ضع-".</p>
+    </div>`;
+}
+
+async function loadData(){
+  if(isConfigMissing()){
+    state.loading = false;
+    renderConfigWarning();
+    return;
+  }
+  try{
+    firebase.initializeApp(firebaseConfig);
+    db = firebase.firestore();
+    const docRef = db.collection(FIRESTORE_COLLECTION).doc(FIRESTORE_DOC);
+    const snap = await docRef.get();
+    state.data = snap.exists ? snap.data() : defaultData();
+    if(!snap.exists){ await docRef.set(state.data); }
+
+    // تحديث فوري على كل الأجهزة لحظة حدوث أي حجز أو تعديل
+    unsubscribeSnapshot = docRef.onSnapshot((doc)=>{
+      if(!doc.exists) return;
+      state.data = doc.data();
+      if(state.view === 'student' || state.view === 'admin'){ render(); }
+    }, (err)=>{ console.error(err); });
+  }catch(e){
+    console.error(e);
+    state.data = defaultData();
+    showToast('تعذر الاتصال بقاعدة البيانات، تأكد من إعداد Firebase وقواعد الحماية (Rules)');
+  }
+  state.loading = false;
+  if(window.location.hash === TEACHER_HASH){
+    state.view = state.data.pin ? 'adminLogin' : 'adminSetup';
+  }
+  render();
+}
+
+async function saveData(){
+  try{
+    await db.collection(FIRESTORE_COLLECTION).doc(FIRESTORE_DOC).set(state.data);
+  }catch(e){
+    console.error(e);
+    showToast('حدث خطأ أثناء الحفظ، تأكد من اتصالك بالإنترنت وحاول مرة أخرى');
+  }
+}
+
+let toastTimer = null;
+function showToast(msg){
+  clearTimeout(toastTimer);
+  let el = document.getElementById('toast');
+  if(el) el.remove();
+  el = document.createElement('div');
+  el.id = 'toast';
+  el.className = 'toast';
+  el.textContent = msg;
+  document.body.appendChild(el);
+  toastTimer = setTimeout(()=>{ el.remove(); }, 2600);
+}
+
+function fmtDate(dateStr){
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('ar-EG', { weekday:'long', day:'numeric', month:'long' });
+}
+function fmtTime(timeStr){
+  const [h,m] = timeStr.split(':').map(Number);
+  const d = new Date(); d.setHours(h,m,0,0);
+  return d.toLocaleTimeString('ar-EG', { hour:'numeric', minute:'2-digit', hour12:true });
+}
+function addMinutes(timeStr, mins){
+  const [h,m] = timeStr.split(':').map(Number);
+  const d = new Date(); d.setHours(h,m,0,0);
+  d.setMinutes(d.getMinutes()+Number(mins));
+  return d.toTimeString().slice(0,5);
+}
+function todayStr(){
+  const d = new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+
+function upcomingSlots(){
+  const today = todayStr();
+  return state.data.slots
+    .filter(s => s.date >= today)
+    .sort((a,b)=> (a.date+a.time).localeCompare(b.date+b.time));
+}
+
+function groupByDate(slots){
+  const groups = {};
+  slots.forEach(s=>{
+    if(!groups[s.date]) groups[s.date]=[];
+    groups[s.date].push(s);
+  });
+  return groups;
+}
+
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+
+/* ---------------- RENDER ---------------- */
+function render(){
+  const app = document.getElementById('app');
+  if(state.loading){
+    app.innerHTML = `<div class="loading">جارِ التحميل...</div>`;
+    return;
+  }
+  if(state.view === 'student') return renderStudent(app);
+  if(state.view === 'confirm') return renderConfirm(app);
+  if(state.view === 'adminLogin') return renderAdminLogin(app);
+  if(state.view === 'adminSetup') return renderAdminSetup(app);
+  if(state.view === 'admin') return renderAdmin(app);
+}
+
+function seatMiniHtml(count){
+  const dots = Array.from({length:MAX_SEATS}).map((_,i)=>`<span class="dot${i<count?' filled':''}"></span>`).join('');
+  return `<div class="seat-mini"><div class="dots">${dots}</div><span class="count">${count}/${MAX_SEATS}</span></div>`;
+}
+
+function renderStudent(app){
+  const slots = upcomingSlots();
+  const groups = groupByDate(slots);
+  const dates = Object.keys(groups);
+
+  let boardHtml = '';
+  if(dates.length === 0){
+    boardHtml = `
+      <div class="empty-state">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+        <div>لا توجد مواعيد متاحة حاليًا</div>
+        <div style="font-size:0.85rem; margin-top:4px;">تابعونا، سيتم إضافة مواعيد جديدة قريبًا بإذن الله</div>
+      </div>`;
+  }else{
+    boardHtml = dates.map(date=>{
+      const rows = groups[date].map(s=>{
+        const count = (s.bookings||[]).length;
+        const isFull = count >= MAX_SEATS;
+        return `
+        <div class="slot-row">
+          <div class="slot-main">
+            <div class="slot-time">${fmtTime(s.time)} — ${fmtTime(addMinutes(s.time, 60))}</div>
+            ${s.note ? `<div class="slot-note">${escapeHtml(s.note)}</div>` : ''}
+            ${seatMiniHtml(count)}
+          </div>
+          ${isFull
+            ? `<span class="tag tag-full">مكتمل</span>`
+            : `<button class="btn btn-primary btn-sm" onclick="openBooking('${s.id}')">احجز</button>`}
+        </div>
+      `;}).join('');
+      return `<div class="day-group"><div class="day-label">${fmtDate(date)}</div>${rows}</div>`;
+    }).join('');
+  }
+
+  app.innerHTML = `
+    <header class="app-head">
+      ${starSVG}
+      <h1>${escapeHtml(state.data.info.name || 'المقرأة')}</h1>
+      ${state.data.info.desc ? `<p class="desc">${escapeHtml(state.data.info.desc)}</p>` : ''}
+      <div class="divider"></div>
+    </header>
+    <div class="board">${boardHtml}</div>
+    ${bookingModalHtml()}
+  `;
+}
+
+function bookingModalHtml(){
+  if(!state.selectedSlot) return '';
+  const s = state.data.slots.find(x=>x.id===state.selectedSlot);
+  if(!s) return '';
+  const count = (s.bookings||[]).length;
+  return `
+  <div class="modal-backdrop" onclick="closeBookingOnBackdrop(event)">
+    <div class="modal">
+      <h3>تأكيد الحجز</h3>
+      <div class="sub">${fmtDate(s.date)} — ${fmtTime(s.time)} (متبقي ${MAX_SEATS-count} من ${MAX_SEATS})</div>
+      <div class="field">
+        <label for="stName">الاسم</label>
+        <input id="stName" type="text" placeholder="اكتب اسمك">
+      </div>
+      <div class="field">
+        <label for="stPhone">رقم الهاتف (اختياري)</label>
+        <input id="stPhone" type="tel" placeholder="01xxxxxxxxx">
+      </div>
+      <div class="err-msg" id="bookErr">من فضلك اكتب اسمك</div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeBooking()">إلغاء</button>
+        <button class="btn btn-primary" onclick="confirmBooking()">تأكيد الحجز</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderConfirm(app){
+  const b = state.lastBooking;
+  app.innerHTML = `
+    <div class="confirm-screen">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 6L9 17l-5-5"/></svg>
+      <h2>تم الحجز بنجاح</h2>
+      <p>${b ? fmtDate(b.date)+' — '+fmtTime(b.time) : ''}</p>
+      <p style="margin-top:16px;">في انتظارك يا ${escapeHtml(b ? b.name : '')}</p>
+      <div style="margin-top:28px;">
+        <button class="btn btn-outline" onclick="backToStudent()">رجوع لقائمة المواعيد</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderAdminLogin(app){
+  app.innerHTML = `
+    <div class="login-wrap">
+      ${starSVG}
+      <h2>دخول المعلم</h2>
+      <div class="sub">أدخل رمز الدخول لعرض ولوحة التحكم</div>
+      <input class="pin-input" id="pinField" type="password" inputmode="numeric" maxlength="8" placeholder="••••">
+      ${state.pinAttemptError ? '<div class="err-msg" style="display:block; text-align:center;">رمز غير صحيح</div>' : ''}
+      <div style="margin-top:18px; display:flex; gap:10px; flex-direction:column;">
+        <button class="btn btn-primary" onclick="tryAdminLogin()">دخول</button>
+        <button class="btn btn-outline" onclick="backToStudent()">رجوع</button>
+      </div>
+    </div>
+  `;
+  setTimeout(()=>{ const f=document.getElementById('pinField'); if(f) f.focus(); },0);
+}
+
+function renderAdminSetup(app){
+  app.innerHTML = `
+    <div class="login-wrap">
+      ${starSVG}
+      <h2>إعداد لوحة المعلم</h2>
+      <div class="sub">أول مرة تدخل؟ أنشئ رمز دخول خاص بك لحماية لوحة التحكم</div>
+      <input class="pin-input" id="pinField1" type="password" inputmode="numeric" maxlength="8" placeholder="رمز جديد">
+      <div style="height:10px;"></div>
+      <input class="pin-input" id="pinField2" type="password" inputmode="numeric" maxlength="8" placeholder="تأكيد الرمز">
+      <div class="err-msg" id="setupErr">تأكد أن الرمزين متطابقين ولا يقل عن 4 أرقام</div>
+      <div style="margin-top:18px; display:flex; gap:10px; flex-direction:column;">
+        <button class="btn btn-primary" onclick="createAdminPin()">إنشاء وتسجيل الدخول</button>
+        <button class="btn btn-outline" onclick="backToStudent()">رجوع</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderAdmin(app){
+  const slots = [...state.data.slots].sort((a,b)=> (a.date+a.time).localeCompare(b.date+b.time));
+  const today = todayStr();
+  const upcoming = slots.filter(s=>s.date >= today);
+  const past = slots.filter(s=>s.date < today);
+
+  const slotRow = (s)=>{
+    const bookings = s.bookings || [];
+    return `
+    <div class="admin-slot">
+      <div style="flex:1;">
+        <div class="slot-time">${fmtDate(s.date)} — ${fmtTime(s.time)} إلى ${fmtTime(addMinutes(s.time, 60))}</div>
+        ${s.note ? `<div class="meta">${escapeHtml(s.note)}</div>` : ''}
+        ${seatMiniHtml(bookings.length)}
+        ${bookings.length
+          ? `<div class="roster-list">${bookings.map(b=>`
+              <div class="roster-item">
+                <span><span class="name">${escapeHtml(b.name)}</span>${b.phone ? ' — '+escapeHtml(b.phone) : ''}</span>
+                <button class="btn btn-outline btn-sm" onclick="cancelBooking('${s.id}','${b.id}')">إلغاء</button>
+              </div>`).join('')}</div>`
+          : `<div class="meta"><span class="tag tag-avail">متاح بالكامل</span></div>`}
+      </div>
+      <div class="actions">
+        <button class="btn btn-danger btn-sm" onclick="deleteSlot('${s.id}')">حذف الميعاد بالكامل</button>
+      </div>
+    </div>`;};
+
+  app.innerHTML = `
+    <div class="admin-topbar">
+      <h2>لوحة المعلم</h2>
+      <button class="btn btn-outline btn-sm" onclick="adminLogout()">خروج</button>
+    </div>
+
+    <div class="section-title">بيانات المقرأة</div>
+    <div class="admin-card">
+      <div class="field">
+        <label>اسم المقرأة</label>
+        <input id="infoName" type="text" value="${escapeAttr(state.data.info.name || '')}">
+      </div>
+      <div class="field" style="margin-bottom:0;">
+        <label>وصف مختصر (يظهر للطلاب)</label>
+        <input id="infoDesc" type="text" value="${escapeAttr(state.data.info.desc || '')}">
+      </div>
+      <button class="btn btn-secondary btn-sm" style="margin-top:12px;" onclick="saveInfo()">حفظ البيانات</button>
+    </div>
+
+    <div class="section-title">إضافة ميعاد جديد (المدة ساعة واحدة، وبحد أقصى ${MAX_SEATS} طلاب)</div>
+    <div class="admin-card">
+      <div class="row-2">
+        <div class="field">
+          <label>التاريخ</label>
+          <input id="newDate" type="date" min="${today}">
+        </div>
+        <div class="field">
+          <label>وقت البداية</label>
+          <input id="newTime" type="time">
+        </div>
+      </div>
+      <div class="field">
+        <label>ملاحظة (اختياري)</label>
+        <input id="newNote" type="text" placeholder="حفظ / مراجعة">
+      </div>
+      <div class="err-msg" id="addErr">من فضلك اختر التاريخ والوقت</div>
+      <button class="btn btn-primary" onclick="addSlot()">إضافة الميعاد</button>
+    </div>
+
+    <div class="section-title">المواعيد القادمة (${upcoming.length})</div>
+    <div class="admin-card">
+      ${upcoming.length ? upcoming.map(slotRow).join('') : '<div class="meta">لا توجد مواعيد قادمة، أضف ميعادًا من الأعلى</div>'}
+    </div>
+
+    ${past.length ? `
+    <div class="section-title">مواعيد سابقة (${past.length})</div>
+    <div class="admin-card">
+      ${past.map(slotRow).join('')}
+    </div>` : ''}
+  `;
+}
+
+function escapeHtml(str){
+  const d = document.createElement('div');
+  d.textContent = str == null ? '' : String(str);
+  return d.innerHTML;
+}
+function escapeAttr(str){
+  return escapeHtml(str).replace(/"/g,'&quot;');
+}
+
+/* ---------------- ACTIONS ---------------- */
+function goAdminEntry(){
+  state.view = state.data.pin ? 'adminLogin' : 'adminSetup';
+  state.pinAttemptError = false;
+  render();
+}
+function clearTeacherHash(){
+  if(window.location.hash === TEACHER_HASH){
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+  }
+}
+function backToStudent(){
+  state.view = 'student';
+  state.selectedSlot = null;
+  clearTeacherHash();
+  render();
+  refreshFromServer();
+}
+function adminLogout(){
+  state.view = 'student';
+  clearTeacherHash();
+  render();
+}
+
+async function createAdminPin(){
+  const p1 = document.getElementById('pinField1').value.trim();
+  const p2 = document.getElementById('pinField2').value.trim();
+  const err = document.getElementById('setupErr');
+  if(p1.length < 4 || p1 !== p2){
+    err.style.display = 'block';
+    return;
+  }
+  state.data.pin = p1;
+  await saveData();
+  state.view = 'admin';
+  render();
+  showToast('تم إنشاء رمز الدخول بنجاح');
+}
+
+function tryAdminLogin(){
+  const val = document.getElementById('pinField').value.trim();
+  if(val === state.data.pin){
+    state.view = 'admin';
+    state.pinAttemptError = false;
+    render();
+  }else{
+    state.pinAttemptError = true;
+    render();
+  }
+}
+
+function openBooking(slotId){
+  state.selectedSlot = slotId;
+  render();
+}
+function closeBooking(){
+  state.selectedSlot = null;
+  render();
+}
+function closeBookingOnBackdrop(e){
+  if(e.target.classList.contains('modal-backdrop')) closeBooking();
+}
+
+async function confirmBooking(){
+  const name = document.getElementById('stName').value.trim();
+  const phone = document.getElementById('stPhone').value.trim();
+  if(!name){
+    document.getElementById('bookErr').style.display = 'block';
+    return;
+  }
+  // refresh first to avoid double-booking race
+  await refreshFromServer(true);
+  const s = state.data.slots.find(x=>x.id===state.selectedSlot);
+  if(!s){
+    showToast('عذرًا، هذا الميعاد لم يعد موجودًا');
+    state.selectedSlot = null;
+    render();
+    return;
+  }
+  s.bookings = s.bookings || [];
+  if(s.bookings.length >= MAX_SEATS){
+    showToast('عذرًا، اكتمل هذا الميعاد بالفعل');
+    state.selectedSlot = null;
+    render();
+    return;
+  }
+  s.bookings.push({ id: uid(), name, phone, at: new Date().toISOString() });
+  await saveData();
+  state.lastBooking = { date: s.date, time: s.time, name };
+  state.selectedSlot = null;
+  state.view = 'confirm';
+  render();
+}
+
+async function addSlot(){
+  const date = document.getElementById('newDate').value;
+  const time = document.getElementById('newTime').value;
+  const note = document.getElementById('newNote').value.trim();
+  if(!date || !time){
+    document.getElementById('addErr').style.display = 'block';
+    return;
+  }
+  state.data.slots.push({ id: uid(), date, time, duration: SLOT_MINUTES, note, bookings: [] });
+  await saveData();
+  render();
+  showToast('تم إضافة الميعاد');
+}
+
+async function deleteSlot(id){
+  state.data.slots = state.data.slots.filter(s=>s.id!==id);
+  await saveData();
+  render();
+  showToast('تم حذف الميعاد');
+}
+
+async function cancelBooking(slotId, bookingId){
+  const s = state.data.slots.find(x=>x.id===slotId);
+  if(s){ s.bookings = (s.bookings||[]).filter(b=>b.id!==bookingId); }
+  await saveData();
+  render();
+  showToast('تم إلغاء الحجز');
+}
+
+async function saveInfo(){
+  state.data.info.name = document.getElementById('infoName').value.trim() || 'المقرأة';
+  state.data.info.desc = document.getElementById('infoDesc').value.trim();
+  await saveData();
+  showToast('تم حفظ البيانات');
+}
+
+async function refreshFromServer(silent){
+  if(!db) return;
+  try{
+    const snap = await db.collection(FIRESTORE_COLLECTION).doc(FIRESTORE_DOC).get();
+    if(snap.exists){
+      state.data = snap.data();
+      if(!silent && (state.view==='student')) render();
+    }
+  }catch(e){ /* ignore */ }
+}
+
+window.addEventListener('hashchange', ()=>{
+  if(window.location.hash === TEACHER_HASH && state.view === 'student'){
+    goAdminEntry();
+  }
+});
+
+/* التحديث بين الأجهزة بيحصل فورًا عن طريق Firestore onSnapshot في loadData()،
+   بس بنعمل تحديث إضافي وقت الرجوع للصفحة كإجراء احتياطي */
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) refreshFromServer(true).then(render); });
+
+loadData();
+</script>
+</body>
+</html>
