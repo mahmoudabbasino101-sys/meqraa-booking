@@ -533,4 +533,301 @@ function renderAdminSetup(app){
       <div style="height:10px;"></div>
       <input class="pin-input" id="pinField2" type="password" inputmode="numeric" maxlength="8" placeholder="تأكيد الرمز">
       <div class="err-msg" id="setupErr">تأكد أن الرمزين متطابقين ولا يقل عن 4 أرقام</div>
-      <div style="margin-top:18px; display:flex
+      <div style="margin-top:18px; display:flex; gap:10px; flex-direction:column;">
+        <button class="btn btn-primary" onclick="createAdminPin()">إنشاء وتسجيل الدخول</button>
+        <button class="btn btn-outline" onclick="backToStudent()">رجوع</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderAdminChangePin(app){
+  app.innerHTML = `
+    <div class="login-wrap">
+      ${starSVG}
+      <h2>تغيير كلمة السر</h2>
+      <div class="sub">أدخل الرمز الحالي ثم الرمز الجديد</div>
+      <input class="pin-input" id="curPin" type="password" inputmode="numeric" maxlength="8" placeholder="الرمز الحالي">
+      <div style="height:10px;"></div>
+      <input class="pin-input" id="newPin1" type="password" inputmode="numeric" maxlength="8" placeholder="الرمز الجديد">
+      <div style="height:10px;"></div>
+      <input class="pin-input" id="newPin2" type="password" inputmode="numeric" maxlength="8" placeholder="تأكيد الرمز الجديد">
+      <div class="err-msg" id="changePinErr">تأكد من الرمز الحالي، وأن الرمز الجديد متطابق ولا يقل عن 4 أرقام</div>
+      <div style="margin-top:18px; display:flex; gap:10px; flex-direction:column;">
+        <button class="btn btn-primary" onclick="saveNewPin()">حفظ الرمز الجديد</button>
+        <button class="btn btn-outline" onclick="backToAdmin()">رجوع</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderAdmin(app){
+  const slots = [...state.data.slots].sort((a,b)=> (a.date+a.time).localeCompare(b.date+b.time));
+  const today = todayStr();
+  const upcoming = slots.filter(s=>s.date >= today);
+  const past = slots.filter(s=>s.date < today);
+
+  const slotRow = (s)=>{
+    const bookings = s.bookings || [];
+    return `
+    <div class="admin-slot">
+      <div style="flex:1;">
+        <div class="slot-time">${fmtDate(s.date)} — ${fmtTime(s.time)} إلى ${fmtTime(addMinutes(s.time, 60))}</div>
+        ${s.note ? `<div class="meta">${escapeHtml(s.note)}</div>` : ''}
+        ${seatMiniHtml(bookings.length)}
+        ${bookings.length
+          ? `<div class="roster-list">${bookings.map(b=>`
+              <div class="roster-item">
+                <span><span class="name">${escapeHtml(b.name)}</span>${b.phone ? ' — '+escapeHtml(b.phone) : ''}</span>
+                <button class="btn btn-outline btn-sm" onclick="cancelBooking('${s.id}','${b.id}')">إلغاء</button>
+              </div>`).join('')}</div>`
+          : `<div class="meta"><span class="tag tag-avail">متاح بالكامل</span></div>`}
+      </div>
+      <div class="actions">
+        <button class="btn btn-danger btn-sm" onclick="deleteSlot('${s.id}')">حذف الميعاد بالكامل</button>
+      </div>
+    </div>`;};
+
+  app.innerHTML = `
+    <div class="admin-topbar">
+      <h2>لوحة المعلم</h2>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-outline btn-sm" onclick="goChangePin()">تغيير كلمة السر</button>
+        <button class="btn btn-outline btn-sm" onclick="adminLogout()">خروج</button>
+      </div>
+    </div>
+
+    <div class="section-title">بيانات المقرأة</div>
+    <div class="admin-card">
+      <div class="field">
+        <label>اسم المقرأة</label>
+        <input id="infoName" type="text" value="${escapeAttr(state.data.info.name || '')}">
+      </div>
+      <div class="field" style="margin-bottom:0;">
+        <label>وصف مختصر (يظهر للطلاب)</label>
+        <input id="infoDesc" type="text" value="${escapeAttr(state.data.info.desc || '')}">
+      </div>
+      <button class="btn btn-secondary btn-sm" style="margin-top:12px;" onclick="saveInfo()">حفظ البيانات</button>
+    </div>
+
+    <div class="section-title">إضافة ميعاد جديد (المدة ساعة واحدة، وبحد أقصى ${MAX_SEATS} طلاب)</div>
+    <div class="admin-card">
+      <div class="row-2">
+        <div class="field">
+          <label>التاريخ</label>
+          <input id="newDate" type="date" min="${today}">
+        </div>
+        <div class="field">
+          <label>وقت البداية</label>
+          <input id="newTime" type="time">
+        </div>
+      </div>
+      <div class="field">
+        <label>ملاحظة (اختياري)</label>
+        <input id="newNote" type="text" placeholder="حفظ / مراجعة">
+      </div>
+      <div class="err-msg" id="addErr">من فضلك اختر التاريخ والوقت</div>
+      <button class="btn btn-primary" onclick="addSlot()">إضافة الميعاد</button>
+    </div>
+
+    <div class="section-title">المواعيد القادمة (${upcoming.length})</div>
+    <div class="admin-card">
+      ${upcoming.length ? upcoming.map(slotRow).join('') : '<div class="meta">لا توجد مواعيد قادمة، أضف ميعادًا من الأعلى</div>'}
+    </div>
+
+    ${past.length ? `
+    <div class="section-title">مواعيد سابقة (${past.length})</div>
+    <div class="admin-card">
+      ${past.map(slotRow).join('')}
+    </div>` : ''}
+  `;
+}
+
+function escapeHtml(str){
+  const d = document.createElement('div');
+  d.textContent = str == null ? '' : String(str);
+  return d.innerHTML;
+}
+function escapeAttr(str){
+  return escapeHtml(str).replace(/"/g,'&quot;');
+}
+
+/* ---------------- ACTIONS ---------------- */
+function goAdminEntry(){
+  state.view = state.data.pin ? 'adminLogin' : 'adminSetup';
+  state.pinAttemptError = false;
+  render();
+}
+function clearTeacherHash(){
+  if(window.location.hash === TEACHER_HASH){
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+  }
+}
+function backToStudent(){
+  state.view = 'student';
+  state.selectedSlot = null;
+  clearTeacherHash();
+  render();
+  refreshFromServer();
+}
+function adminLogout(){
+  state.view = 'student';
+  clearTeacherHash();
+  render();
+}
+
+async function createAdminPin(){
+  const p1 = document.getElementById('pinField1').value.trim();
+  const p2 = document.getElementById('pinField2').value.trim();
+  const err = document.getElementById('setupErr');
+  if(p1.length < 4 || p1 !== p2){
+    err.style.display = 'block';
+    return;
+  }
+  state.data.pin = p1;
+  await saveData();
+  state.view = 'admin';
+  render();
+  showToast('تم إنشاء رمز الدخول بنجاح');
+}
+
+function goChangePin(){
+  state.view = 'adminChangePin';
+  render();
+}
+function backToAdmin(){
+  state.view = 'admin';
+  render();
+}
+async function saveNewPin(){
+  const cur = document.getElementById('curPin').value.trim();
+  const p1 = document.getElementById('newPin1').value.trim();
+  const p2 = document.getElementById('newPin2').value.trim();
+  const err = document.getElementById('changePinErr');
+  if(cur !== state.data.pin || p1.length < 4 || p1 !== p2){
+    err.style.display = 'block';
+    return;
+  }
+  state.data.pin = p1;
+  await saveData();
+  state.view = 'admin';
+  render();
+  showToast('تم تغيير كلمة السر بنجاح');
+}
+
+function tryAdminLogin(){
+  const val = document.getElementById('pinField').value.trim();
+  if(val === state.data.pin){
+    state.view = 'admin';
+    state.pinAttemptError = false;
+    render();
+  }else{
+    state.pinAttemptError = true;
+    render();
+  }
+}
+
+function openBooking(slotId){
+  state.selectedSlot = slotId;
+  render();
+}
+function closeBooking(){
+  state.selectedSlot = null;
+  render();
+}
+function closeBookingOnBackdrop(e){
+  if(e.target.classList.contains('modal-backdrop')) closeBooking();
+}
+
+async function confirmBooking(){
+  const name = document.getElementById('stName').value.trim();
+  const phone = document.getElementById('stPhone').value.trim();
+  if(!name){
+    document.getElementById('bookErr').style.display = 'block';
+    return;
+  }
+  // refresh first to avoid double-booking race
+  await refreshFromServer(true);
+  const s = state.data.slots.find(x=>x.id===state.selectedSlot);
+  if(!s){
+    showToast('عذرًا، هذا الميعاد لم يعد موجودًا');
+    state.selectedSlot = null;
+    render();
+    return;
+  }
+  s.bookings = s.bookings || [];
+  if(s.bookings.length >= MAX_SEATS){
+    showToast('عذرًا، اكتمل هذا الميعاد بالفعل');
+    state.selectedSlot = null;
+    render();
+    return;
+  }
+  s.bookings.push({ id: uid(), name, phone, at: new Date().toISOString() });
+  await saveData();
+  state.lastBooking = { date: s.date, time: s.time, name };
+  state.selectedSlot = null;
+  state.view = 'confirm';
+  render();
+}
+
+async function addSlot(){
+  const date = document.getElementById('newDate').value;
+  const time = document.getElementById('newTime').value;
+  const note = document.getElementById('newNote').value.trim();
+  if(!date || !time){
+    document.getElementById('addErr').style.display = 'block';
+    return;
+  }
+  state.data.slots.push({ id: uid(), date, time, duration: SLOT_MINUTES, note, bookings: [] });
+  await saveData();
+  render();
+  showToast('تم إضافة الميعاد');
+}
+
+async function deleteSlot(id){
+  state.data.slots = state.data.slots.filter(s=>s.id!==id);
+  await saveData();
+  render();
+  showToast('تم حذف الميعاد');
+}
+
+async function cancelBooking(slotId, bookingId){
+  const s = state.data.slots.find(x=>x.id===slotId);
+  if(s){ s.bookings = (s.bookings||[]).filter(b=>b.id!==bookingId); }
+  await saveData();
+  render();
+  showToast('تم إلغاء الحجز');
+}
+
+async function saveInfo(){
+  state.data.info.name = document.getElementById('infoName').value.trim() || 'المقرأة';
+  state.data.info.desc = document.getElementById('infoDesc').value.trim();
+  await saveData();
+  showToast('تم حفظ البيانات');
+}
+
+async function refreshFromServer(silent){
+  if(!db) return;
+  try{
+    const snap = await db.collection(FIRESTORE_COLLECTION).doc(FIRESTORE_DOC).get();
+    if(snap.exists){
+      state.data = snap.data();
+      if(!silent && (state.view==='student')) render();
+    }
+  }catch(e){ /* ignore */ }
+}
+
+window.addEventListener('hashchange', ()=>{
+  if(window.location.hash === TEACHER_HASH && state.view === 'student'){
+    goAdminEntry();
+  }
+});
+
+/* التحديث بين الأجهزة بيحصل فورًا عن طريق Firestore onSnapshot في loadData()،
+   بس بنعمل تحديث إضافي وقت الرجوع للصفحة كإجراء احتياطي */
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) refreshFromServer(true).then(render); });
+
+loadData();
+</script>
+</body>
+</html>
