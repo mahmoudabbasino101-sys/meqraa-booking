@@ -40,13 +40,14 @@
     text-align:center;
     padding:38px 16px 26px;
     position:relative;
+    perspective:600px;
   }
   .star-mark{
     width:72px; height:72px; margin:0 auto 10px;
-    animation:spin-slow 40s linear infinite;
+    animation:flip-slow 7s ease-in-out infinite;
   }
   @media (prefers-reduced-motion:reduce){ .star-mark{animation:none;} }
-  @keyframes spin-slow{ from{transform:rotate(0)} to{transform:rotate(360deg)} }
+  @keyframes flip-slow{ 0%,100%{transform:rotateY(0deg);} 50%{transform:rotateY(180deg);} }
   .app-head h1{
     font-family:var(--font-display);
     font-size:2.5rem;
@@ -66,6 +67,7 @@
     background-image: repeating-linear-gradient(90deg, transparent 0 6px, var(--gold-light) 6px 7px, transparent 7px 26px);
     opacity:0.7;
   }
+  .my-bookings-btn{ margin-top:16px; }
 
   /* ---------- Cards / board ---------- */
   .board{
@@ -185,6 +187,16 @@
   .modal-actions{ display:flex; gap:10px; margin-top:20px; }
   .modal-actions .btn{ flex:1; }
   .err-msg{ color:var(--clay); font-size:0.85rem; margin-top:-6px; margin-bottom:12px; display:none; }
+  .link-btn{
+    background:none; border:none; color:var(--sage); text-decoration:underline;
+    font-family:var(--font-body); font-size:0.88rem; cursor:pointer; padding:4px;
+  }
+  .forgot-box{
+    margin-top:14px; background:var(--sage-light); border-radius:12px; padding:14px 16px;
+    font-size:0.85rem; line-height:1.7; text-align:right;
+  }
+  .forgot-box ol{ padding-inline-start:20px; margin:8px 0 0; }
+  .forgot-box p{ margin:0; }
 
   /* ---------- Admin ---------- */
   .admin-topbar{
@@ -204,6 +216,7 @@
   .row-2 .field{ flex:1; }
   .login-wrap{
     max-width:340px; margin:60px auto; text-align:center;
+    perspective:600px;
   }
   .login-wrap .star-mark{ width:52px; height:52px; }
   .login-wrap h2{ font-family:var(--font-display); font-size:1.6rem; margin-bottom:6px; }
@@ -286,11 +299,22 @@ let state = {
   selectedSlot: null,
   lastBooking: null,
   pinAttemptError: false,
+  showForgotHelp: false,
+  myBookingsEmail: '',
+  myBookingsResults: null,
 };
 
 const starSVG = `<svg class="star-mark" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-  <g fill="none" stroke="#B8923F" stroke-width="2.5">
-    <path d="M50 5 L61 39 L95 39 L67 60 L78 94 L50 73 L22 94 L33 60 L5 39 L39 39 Z"/>
+  <g fill="none" stroke="#B8923F" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M50 22 C36 16 20 18 10 26 L10 76 C20 68 36 66 50 72 Z"/>
+    <path d="M50 22 C64 16 80 18 90 26 L90 76 C80 68 64 66 50 72 Z"/>
+    <line x1="50" y1="22" x2="50" y2="72"/>
+    <path d="M18 34 L42 38"/>
+    <path d="M18 44 L42 48"/>
+    <path d="M18 54 L42 58"/>
+    <path d="M58 38 L82 34"/>
+    <path d="M58 48 L82 44"/>
+    <path d="M58 58 L82 54"/>
   </g>
 </svg>`;
 
@@ -406,6 +430,7 @@ function render(){
     return;
   }
   if(state.view === 'student') return renderStudent(app);
+  if(state.view === 'myBookings') return renderMyBookings(app);
   if(state.view === 'confirm') return renderConfirm(app);
   if(state.view === 'adminLogin') return renderAdminLogin(app);
   if(state.view === 'adminSetup') return renderAdminSetup(app);
@@ -458,10 +483,63 @@ function renderStudent(app){
       <h1>${escapeHtml(state.data.info.name || 'المقرأة')}</h1>
       ${state.data.info.desc ? `<p class="desc">${escapeHtml(state.data.info.desc)}</p>` : ''}
       <div class="divider"></div>
+      <button class="btn btn-outline btn-sm my-bookings-btn" onclick="goMyBookings()">مواعيدي</button>
     </header>
     <div class="board">${boardHtml}</div>
     ${bookingModalHtml()}
   `;
+}
+
+function myBookingRowHtml(item, withCountdown){
+  return `
+    <div class="slot-row">
+      <div class="slot-main">
+        <div class="slot-time">${fmtDate(item.slot.date)} — ${fmtTime(item.slot.time)}</div>
+        ${item.slot.note ? `<div class="slot-note">${escapeHtml(item.slot.note)}</div>` : ''}
+      </div>
+      ${withCountdown
+        ? `<span class="tag tag-avail" id="cd-${item.booking.id}" style="white-space:nowrap;">...</span>`
+        : `<span class="tag tag-full">تم الحضور</span>`}
+    </div>`;
+}
+
+function renderMyBookings(app){
+  const results = state.myBookingsResults;
+  let resultsHtml = '';
+  if(results){
+    if(!results.upcoming.length && !results.past.length){
+      resultsHtml = `<div class="empty-state"><div>لم يتم العثور على أي حجوزات بهذا البريد الإلكتروني</div></div>`;
+    }else{
+      if(results.upcoming.length){
+        resultsHtml += `<h3 class="section-title">المواعيد القادمة</h3><div class="board">${results.upcoming.map(i=>myBookingRowHtml(i,true)).join('')}</div>`;
+      }
+      if(results.past.length){
+        resultsHtml += `<h3 class="section-title">المواعيد السابقة</h3><div class="board">${results.past.map(i=>myBookingRowHtml(i,false)).join('')}</div>`;
+      }
+    }
+  }
+
+  app.innerHTML = `
+    <header class="app-head">
+      ${starSVG}
+      <h1>مواعيدي</h1>
+      <div class="divider"></div>
+      <button class="btn btn-outline btn-sm" onclick="goStudentFromMyBookings()">رجوع للمواعيد</button>
+    </header>
+    <div class="admin-card" style="margin-bottom:20px;">
+      <div class="field">
+        <label for="myEmailInput">أدخل بريدك الإلكتروني</label>
+        <input id="myEmailInput" type="email" placeholder="example@email.com" value="${escapeAttr(state.myBookingsEmail||'')}">
+      </div>
+      <button class="btn btn-primary" onclick="searchMyBookings()">بحث عن حجوزاتي</button>
+    </div>
+    ${resultsHtml}
+  `;
+  const input = document.getElementById('myEmailInput');
+  if(input){
+    input.addEventListener('keydown', (e)=>{ if(e.key === 'Enter') searchMyBookings(); });
+  }
+  if(results) startMyBookingsTimer();
 }
 
 function bookingModalHtml(){
@@ -479,10 +557,14 @@ function bookingModalHtml(){
         <input id="stName" type="text" placeholder="اكتب اسمك">
       </div>
       <div class="field">
+        <label for="stEmail">البريد الإلكتروني</label>
+        <input id="stEmail" type="email" placeholder="example@email.com" value="${escapeAttr(localStorage.getItem('meqraaMyEmail')||'')}">
+      </div>
+      <div class="field">
         <label for="stPhone">رقم الهاتف (اختياري)</label>
         <input id="stPhone" type="tel" placeholder="01xxxxxxxxx">
       </div>
-      <div class="err-msg" id="bookErr">من فضلك اكتب اسمك</div>
+      <div class="err-msg" id="bookErr">من فضلك اكتب اسمك وبريد إلكتروني صحيح</div>
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick="closeBooking()">إلغاء</button>
         <button class="btn btn-primary" onclick="confirmBooking()">تأكيد الحجز</button>
@@ -518,6 +600,19 @@ function renderAdminLogin(app){
         <button class="btn btn-primary" onclick="tryAdminLogin()">دخول</button>
         <button class="btn btn-outline" onclick="backToStudent()">رجوع</button>
       </div>
+      <div style="text-align:center; margin-top:14px;">
+        <button class="link-btn" onclick="toggleForgotHelp()">نسيت كلمة السر؟</button>
+      </div>
+      ${state.showForgotHelp ? `
+        <div class="forgot-box">
+          <p>مفيش طريقة استرجاع تلقائية داخل الموقع (عشان الأمان)، لكن تقدر تغيّر الرمز يدويًا من مكان تخزين البيانات:</p>
+          <ol>
+            <li>افتح <b>console.firebase.google.com</b> وادخل مشروعك</li>
+            <li>Databases &amp; Storage &gt; Firestore Database &gt; تبويب Data</li>
+            <li>ادخل على المجموعة <b>meqraa</b> ثم المستند <b>data</b></li>
+            <li>دوّر على الحقل <b>pin</b> وغيّر قيمته للرمز اللي عايزه</li>
+          </ol>
+        </div>` : ''}
     </div>
   `;
   setTimeout(()=>{ const f=document.getElementById('pinField'); if(f) f.focus(); },0);
@@ -578,7 +673,7 @@ function renderAdmin(app){
         ${bookings.length
           ? `<div class="roster-list">${bookings.map(b=>`
               <div class="roster-item">
-                <span><span class="name">${escapeHtml(b.name)}</span>${b.phone ? ' — '+escapeHtml(b.phone) : ''}</span>
+                <span><span class="name">${escapeHtml(b.name)}</span>${b.email ? ' — '+escapeHtml(b.email) : ''}${b.phone ? ' — '+escapeHtml(b.phone) : ''}</span>
                 <button class="btn btn-outline btn-sm" onclick="cancelBooking('${s.id}','${b.id}')">إلغاء</button>
               </div>`).join('')}</div>`
           : `<div class="meta"><span class="tag tag-avail">متاح بالكامل</span></div>`}
@@ -676,6 +771,92 @@ function adminLogout(){
   render();
 }
 
+/* ---------------- MY BOOKINGS (email lookup + countdown) ---------------- */
+let myBookingsTimer = null;
+
+function goMyBookings(){
+  stopMyBookingsTimer();
+  state.view = 'myBookings';
+  state.myBookingsEmail = (localStorage.getItem('meqraaMyEmail') || '').trim();
+  state.myBookingsResults = null;
+  render();
+}
+
+function goStudentFromMyBookings(){
+  stopMyBookingsTimer();
+  backToStudent();
+}
+
+function searchMyBookings(){
+  const raw = document.getElementById('myEmailInput').value.trim().toLowerCase();
+  if(!raw) return;
+  state.myBookingsEmail = raw;
+  try{ localStorage.setItem('meqraaMyEmail', raw); }catch(e){}
+
+  const now = Date.now();
+  const upcoming = [];
+  const past = [];
+  (state.data.slots || []).forEach(s=>{
+    (s.bookings || []).forEach(b=>{
+      if((b.email || '').toLowerCase() === raw){
+        const start = new Date(s.date + 'T' + s.time + ':00').getTime();
+        const end = start + SLOT_MINUTES * 60000;
+        const item = { slot: s, booking: b, start, end };
+        if(end > now) upcoming.push(item); else past.push(item);
+      }
+    });
+  });
+  upcoming.sort((a,b)=>a.start - b.start);
+  past.sort((a,b)=>b.start - a.start);
+  state.myBookingsResults = { upcoming, past };
+  render();
+}
+
+function formatCountdown(ms){
+  const totalSec = Math.max(0, Math.floor(ms/1000));
+  const days = Math.floor(totalSec/86400);
+  const hours = Math.floor((totalSec % 86400)/3600);
+  const mins = Math.floor((totalSec % 3600)/60);
+  const secs = totalSec % 60;
+  const parts = [];
+  if(days) parts.push(days+' يوم');
+  if(hours || days) parts.push(hours+' ساعة');
+  if(mins || hours || days) parts.push(mins+' دقيقة');
+  parts.push(secs+' ثانية');
+  return 'متبقي ' + parts.join(' و ');
+}
+
+function updateMyBookingsCountdowns(){
+  if(!state.myBookingsResults) return;
+  const now = Date.now();
+  let anyStateChange = false;
+  state.myBookingsResults.upcoming.forEach(item=>{
+    const el = document.getElementById('cd-'+item.booking.id);
+    if(!el) return;
+    if(now >= item.end){
+      anyStateChange = true;
+    }else if(now >= item.start){
+      el.textContent = 'الموعد جارٍ الآن';
+      el.className = 'tag tag-full';
+    }else{
+      el.textContent = formatCountdown(item.start - now);
+    }
+  });
+  if(anyStateChange){
+    // موعد انتهى بينما الصفحة مفتوحة - أعد الحساب لنقله لقسم "السابقة"
+    searchMyBookings();
+  }
+}
+
+function startMyBookingsTimer(){
+  stopMyBookingsTimer();
+  updateMyBookingsCountdowns();
+  myBookingsTimer = setInterval(updateMyBookingsCountdowns, 1000);
+}
+function stopMyBookingsTimer(){
+  if(myBookingsTimer){ clearInterval(myBookingsTimer); myBookingsTimer = null; }
+}
+
 async function createAdminPin(){
   const p1 = document.getElementById('pinField1').value.trim();
   const p2 = document.getElementById('pinField2').value.trim();
@@ -691,6 +872,10 @@ async function createAdminPin(){
   showToast('تم إنشاء رمز الدخول بنجاح');
 }
 
+function toggleForgotHelp(){
+  state.showForgotHelp = !state.showForgotHelp;
+  render();
+}
 function goChangePin(){
   state.view = 'adminChangePin';
   render();
@@ -741,8 +926,10 @@ function closeBookingOnBackdrop(e){
 
 async function confirmBooking(){
   const name = document.getElementById('stName').value.trim();
+  const email = document.getElementById('stEmail').value.trim().toLowerCase();
   const phone = document.getElementById('stPhone').value.trim();
-  if(!name){
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  if(!name || !emailOk){
     document.getElementById('bookErr').style.display = 'block';
     return;
   }
@@ -762,8 +949,9 @@ async function confirmBooking(){
     render();
     return;
   }
-  s.bookings.push({ id: uid(), name, phone, at: new Date().toISOString() });
+  s.bookings.push({ id: uid(), name, email, phone, at: new Date().toISOString() });
   await saveData();
+  try{ localStorage.setItem('meqraaMyEmail', email); }catch(e){}
   state.lastBooking = { date: s.date, time: s.time, name };
   state.selectedSlot = null;
   state.view = 'confirm';
