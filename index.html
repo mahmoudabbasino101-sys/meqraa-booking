@@ -518,9 +518,8 @@ function todayStr(){
 }
 
 function upcomingSlots(){
-  const today = todayStr();
   return state.data.slots
-    .filter(s => s.date >= today)
+    .filter(s => !isSlotPast(s))
     .sort((a,b)=> (a.date+a.time).localeCompare(b.date+b.time));
 }
 
