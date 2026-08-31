@@ -607,19 +607,7 @@ function renderAdminLogin(app){
         <button class="btn btn-primary" onclick="tryAdminLogin()">دخول</button>
         <button class="btn btn-outline" onclick="backToStudent()">رجوع</button>
       </div>
-      <div style="text-align:center; margin-top:14px;">
-        <button class="link-btn" onclick="toggleForgotHelp()">نسيت كلمة السر؟</button>
-      </div>
-      ${state.showForgotHelp ? `
-        <div class="forgot-box">
-          <p>مفيش طريقة استرجاع تلقائية داخل الموقع (عشان الأمان)، لكن تقدر تغيّر الرمز يدويًا من مكان تخزين البيانات:</p>
-          <ol>
-            <li>افتح <b>console.firebase.google.com</b> وادخل مشروعك</li>
-            <li>Databases &amp; Storage &gt; Firestore Database &gt; تبويب Data</li>
-            <li>ادخل على المجموعة <b>meqraa</b> ثم المستند <b>data</b></li>
-            <li>دوّر على الحقل <b>pin</b> وغيّر قيمته للرمز اللي عايزه</li>
-          </ol>
-        </div>` : ''}
+      
     </div>
   `;
   setTimeout(()=>{ const f=document.getElementById('pinField'); if(f) f.focus(); },0);
