@@ -146,10 +146,33 @@
 
   .roster-list{ display:flex; flex-direction:column; gap:6px; margin-top:8px; }
   .roster-item{
-    display:flex; align-items:center; justify-content:space-between;
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
     background:var(--sage-light); border-radius:8px; padding:6px 10px; font-size:0.82rem;
   }
   .roster-item .name{ font-weight:700; color:var(--ink); }
+  .roster-item .roster-info{ flex:1; min-width:0; }
+  .roster-item .roster-actions{ display:flex; align-items:center; gap:6px; flex-shrink:0; }
+  .call-btn{
+    display:flex; align-items:center; justify-content:center; width:26px; height:26px;
+    border-radius:50%; background:var(--gold); color:#fff; text-decoration:none; font-size:13px;
+    flex-shrink:0;
+  }
+
+  /* ---------- Admin dropdown menu ---------- */
+  .admin-menu-wrap{ position:relative; }
+  .admin-menu-dropdown{
+    position:absolute; top:calc(100% + 6px); left:0; background:#fff; border:1px solid var(--paper-deep);
+    border-radius:10px; box-shadow:0 8px 24px rgba(22,51,58,0.18); min-width:190px; z-index:30;
+    overflow:hidden; display:none;
+  }
+  .admin-menu-dropdown.open{ display:block; }
+  .admin-menu-item{
+    display:block; width:100%; text-align:right; padding:11px 14px; background:none; border:none;
+    border-bottom:1px solid var(--paper-deep); font-family:var(--font-body); font-size:0.86rem;
+    color:var(--ink); cursor:pointer;
+  }
+  .admin-menu-item:last-child{ border-bottom:none; }
+  .admin-menu-item:active{ background:var(--sage-light); }
 
   /* ---------- Chat ---------- */
   .chat-wrap{ display:flex; flex-direction:column; height:calc(100vh - 220px); min-height:340px; }
@@ -391,6 +414,7 @@ let state = {
   activeChatEmail: null,
   activeChatName: '',
   activeChatMessages: [],
+  adminMenuOpen: false,
 };
 
 const starSVG = `<svg class="star-mark" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
@@ -500,6 +524,11 @@ function upcomingSlots(){
     .sort((a,b)=> (a.date+a.time).localeCompare(b.date+b.time));
 }
 
+function isSlotPast(s){
+  const end = new Date(s.date + 'T' + s.time + ':00').getTime() + SLOT_MINUTES * 60000;
+  return end <= Date.now();
+}
+
 function groupByDate(slots){
   const groups = {};
   slots.forEach(s=>{
@@ -526,6 +555,7 @@ function render(){
   if(state.view === 'adminSetup') return renderAdminSetup(app);
   if(state.view === 'adminChangePin') return renderAdminChangePin(app);
   if(state.view === 'admin') return renderAdmin(app);
+  if(state.view === 'adminPastSlots') return renderAdminPastSlots(app);
   if(state.view === 'adminChats') return renderAdminChatList(app);
   if(state.view === 'adminChatThread') return renderAdminChatThread(app);
 }
@@ -738,15 +768,9 @@ function renderAdminChangePin(app){
   `;
 }
 
-function renderAdmin(app){
-  const slots = [...state.data.slots].sort((a,b)=> (a.date+a.time).localeCompare(b.date+b.time));
-  const today = todayStr();
-  const upcoming = slots.filter(s=>s.date >= today);
-  const past = slots.filter(s=>s.date < today);
-
-  const slotRow = (s)=>{
-    const bookings = s.bookings || [];
-    return `
+function adminSlotRowHtml(s){
+  const bookings = s.bookings || [];
+  return `
     <div class="admin-slot">
       <div style="flex:1;">
         <div class="slot-time">${fmtDate(s.date)} — ${fmtTime(s.time)} إلى ${fmtTime(addMinutes(s.time, 60))}</div>
@@ -755,23 +779,47 @@ function renderAdmin(app){
         ${bookings.length
           ? `<div class="roster-list">${bookings.map(b=>`
               <div class="roster-item">
-                <span><span class="name">${escapeHtml(b.name)}</span>${b.email ? ' — '+escapeHtml(b.email) : ''}${b.phone ? ' — '+escapeHtml(b.phone) : ''}</span>
-                <button class="btn btn-outline btn-sm" onclick="cancelBooking('${s.id}','${b.id}')">إلغاء</button>
+                <span class="roster-info"><span class="name">${escapeHtml(b.name)}</span>${b.email ? ' — '+escapeHtml(b.email) : ''}${b.phone ? ' — '+escapeHtml(b.phone) : ''}</span>
+                <span class="roster-actions">
+                  ${b.phone ? `<a class="call-btn" href="tel:${escapeAttr(b.phone)}" title="اتصال بـ ${escapeAttr(b.name)}">📞</a>` : ''}
+                  <button class="btn btn-outline btn-sm" onclick="cancelBooking('${s.id}','${b.id}')">إلغاء</button>
+                </span>
               </div>`).join('')}</div>`
           : `<div class="meta"><span class="tag tag-avail">متاح بالكامل</span></div>`}
       </div>
       <div class="actions">
         <button class="btn btn-danger btn-sm" onclick="deleteSlot('${s.id}')">حذف الميعاد بالكامل</button>
       </div>
-    </div>`;};
+    </div>`;
+}
+
+function toggleAdminMenu(){
+  state.adminMenuOpen = !state.adminMenuOpen;
+  render();
+}
+function adminMenuGo(fnName){
+  state.adminMenuOpen = false;
+  window[fnName]();
+}
+
+function renderAdmin(app){
+  const slots = [...state.data.slots].sort((a,b)=> (a.date+a.time).localeCompare(b.date+b.time));
+  const upcoming = slots.filter(s=>!isSlotPast(s));
+  const pastCount = slots.length - upcoming.length;
 
   app.innerHTML = `
     <div class="admin-topbar">
       <h2>لوحة المعلم</h2>
-      <div style="display:flex; gap:8px; flex-wrap:wrap;">
-        <button class="btn btn-outline btn-sm" onclick="goAdminChats()">الرسائل${state.chatUnreadTotal ? `<span class="chat-badge">${state.chatUnreadTotal}</span>` : ''}</button>
-        <button class="btn btn-outline btn-sm" onclick="goChangePin()">تغيير كلمة السر</button>
-        <button class="btn btn-outline btn-sm" onclick="adminLogout()">خروج</button>
+      <div class="admin-menu-wrap">
+        <button class="btn btn-outline btn-sm" onclick="toggleAdminMenu()">
+          ☰ القائمة${state.chatUnreadTotal ? `<span class="chat-badge">${state.chatUnreadTotal}</span>` : ''}
+        </button>
+        <div class="admin-menu-dropdown ${state.adminMenuOpen ? 'open' : ''}">
+          <button class="admin-menu-item" onclick="adminMenuGo('goAdminChats')">الرسائل${state.chatUnreadTotal ? `<span class="chat-badge">${state.chatUnreadTotal}</span>` : ''}</button>
+          <button class="admin-menu-item" onclick="adminMenuGo('goAdminPastSlots')">مواعيد سابقة${pastCount ? `<span class="chat-badge">${pastCount}</span>` : ''}</button>
+          <button class="admin-menu-item" onclick="adminMenuGo('goChangePin')">تغيير كلمة السر</button>
+          <button class="admin-menu-item" onclick="adminMenuGo('adminLogout')">خروج</button>
+        </div>
       </div>
     </div>
 
@@ -793,7 +841,7 @@ function renderAdmin(app){
       <div class="row-2">
         <div class="field">
           <label>التاريخ</label>
-          <input id="newDate" type="date" min="${today}">
+          <input id="newDate" type="date" min="${todayStr()}">
         </div>
         <div class="field">
           <label>وقت البداية</label>
@@ -810,14 +858,30 @@ function renderAdmin(app){
 
     <div class="section-title">المواعيد القادمة (${upcoming.length})</div>
     <div class="admin-card">
-      ${upcoming.length ? upcoming.map(slotRow).join('') : '<div class="meta">لا توجد مواعيد قادمة، أضف ميعادًا من الأعلى</div>'}
+      ${upcoming.length ? upcoming.map(adminSlotRowHtml).join('') : '<div class="meta">لا توجد مواعيد قادمة، أضف ميعادًا من الأعلى</div>'}
     </div>
+  `;
+}
 
-    ${past.length ? `
-    <div class="section-title">مواعيد سابقة (${past.length})</div>
+function goAdminPastSlots(){
+  state.view = 'adminPastSlots';
+  render();
+}
+function goBackFromAdminPastSlots(){
+  state.view = 'admin';
+  render();
+}
+function renderAdminPastSlots(app){
+  const slots = [...state.data.slots].sort((a,b)=> (b.date+b.time).localeCompare(a.date+a.time));
+  const past = slots.filter(s=>isSlotPast(s));
+  app.innerHTML = `
+    <div class="admin-topbar">
+      <h2>مواعيد سابقة</h2>
+      <button class="btn btn-outline btn-sm" onclick="goBackFromAdminPastSlots()">رجوع للوحة المعلم</button>
+    </div>
     <div class="admin-card">
-      ${past.map(slotRow).join('')}
-    </div>` : ''}
+      ${past.length ? past.map(adminSlotRowHtml).join('') : '<div class="meta">لا توجد مواعيد سابقة بعد</div>'}
+    </div>
   `;
 }
 
@@ -844,6 +908,7 @@ function clearTeacherHash(){
 function backToStudent(){
   stopAdminChatList();
   stopChatThread();
+  state.adminMenuOpen = false;
   state.view = 'student';
   state.selectedSlot = null;
   clearTeacherHash();
@@ -853,6 +918,7 @@ function backToStudent(){
 function adminLogout(){
   stopAdminChatList();
   stopChatThread();
+  state.adminMenuOpen = false;
   state.view = 'student';
   clearTeacherHash();
   render();
@@ -1152,6 +1218,20 @@ function goBackFromChatThread(){
   render();
 }
 
+async function deleteWholeChat(email){
+  if(!confirm('هل أنت متأكد من حذف المحادثة بالكامل مع هذا الطالب؟ لا يمكن التراجع.')) return;
+  try{
+    await db.collection(CHATS_COLLECTION).doc(email).delete();
+    showToast('تم حذف المحادثة');
+  }catch(e){
+    showToast('تعذر حذف المحادثة، حاول تاني');
+    return;
+  }
+  if(state.activeChatEmail === email){
+    goBackFromChatThread();
+  }
+}
+
 function sendTeacherMessage(){
   const input = document.getElementById('chatInputTeacher');
   const text = input.value.trim();
@@ -1205,7 +1285,10 @@ function renderAdminChatThread(app){
   app.innerHTML = `
     <div class="admin-topbar">
       <h2>${escapeHtml(state.activeChatName)}</h2>
-      <button class="btn btn-outline btn-sm" onclick="goBackFromChatThread()">رجوع للرسائل</button>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn btn-danger btn-sm" onclick="deleteWholeChat('${escapeAttr(state.activeChatEmail)}')">حذف المحادثة بالكامل</button>
+        <button class="btn btn-outline btn-sm" onclick="goBackFromChatThread()">رجوع للرسائل</button>
+      </div>
     </div>
     <div class="chat-wrap">
       <div class="chat-messages" id="chatMessagesBoxAdmin">
@@ -1370,6 +1453,13 @@ async function refreshFromServer(silent){
     }
   }catch(e){ /* ignore */ }
 }
+
+document.addEventListener('click', (e)=>{
+  if(state.adminMenuOpen && !e.target.closest('.admin-menu-wrap')){
+    state.adminMenuOpen = false;
+    render();
+  }
+});
 
 window.addEventListener('hashchange', ()=>{
   if(window.location.hash === TEACHER_HASH && state.view === 'student'){
