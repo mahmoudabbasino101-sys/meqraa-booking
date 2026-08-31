@@ -75,6 +75,11 @@
     opacity:0.7;
   }
   .my-bookings-btn{ margin-top:16px; }
+  .header-actions{ display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin-top:16px; }
+  .header-actions .my-bookings-btn{ margin-top:0; }
+  .install-btn{ animation:pulse-glow 2.4s ease-in-out infinite; }
+  @keyframes pulse-glow{ 0%,100%{ box-shadow:0 3px 10px rgba(184,146,63,0.35); } 50%{ box-shadow:0 3px 16px rgba(184,146,63,0.7); } }
+  @media (prefers-reduced-motion:reduce){ .install-btn{ animation:none; } }
 
   /* ---------- Cards / board ---------- */
   .board{
@@ -146,6 +151,40 @@
   }
   .roster-item .name{ font-weight:700; color:var(--ink); }
 
+  /* ---------- Chat ---------- */
+  .chat-wrap{ display:flex; flex-direction:column; height:calc(100vh - 220px); min-height:340px; }
+  .chat-messages{
+    flex:1; overflow-y:auto; padding:14px; background:#fff; border:1px solid var(--paper-deep);
+    border-radius:var(--radius) var(--radius) 0 0; display:flex; flex-direction:column; gap:8px;
+  }
+  .msg-bubble{
+    max-width:78%; padding:9px 13px; border-radius:14px; font-size:0.9rem; line-height:1.5;
+    word-wrap:break-word; white-space:pre-wrap;
+  }
+  .msg-bubble .msg-time{ display:block; font-size:0.68rem; opacity:0.65; margin-top:4px; }
+  .msg-student{ align-self:flex-start; background:var(--sage-light); color:var(--ink); border-bottom-left-radius:4px; }
+  .msg-teacher{ align-self:flex-end; background:var(--ink); color:#fff; border-bottom-right-radius:4px; }
+  .chat-input-row{
+    display:flex; gap:8px; padding:10px; background:#fff; border:1px solid var(--paper-deep); border-top:none;
+    border-radius:0 0 var(--radius) var(--radius);
+  }
+  .chat-input-row input{ flex:1; }
+  .chat-empty{ color:var(--ink-soft); text-align:center; margin-top:20px; font-size:0.88rem; }
+  .chat-list-item{
+    display:flex; justify-content:space-between; align-items:center; gap:10px;
+    background:#fff; border:1px solid var(--paper-deep); border-radius:12px; padding:12px 14px;
+    margin-bottom:10px; cursor:pointer;
+  }
+  .chat-list-item .cl-name{ font-weight:700; color:var(--ink); }
+  .chat-list-item .cl-preview{ font-size:0.82rem; color:var(--ink-soft); margin-top:2px; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .unread-dot{
+    width:10px; height:10px; border-radius:50%; background:var(--clay); flex-shrink:0;
+  }
+  .chat-badge{
+    background:var(--clay); color:#fff; font-size:0.7rem; font-weight:700;
+    border-radius:10px; padding:1px 7px; margin-inline-start:4px;
+  }
+
   .empty-state{
     text-align:center; padding:50px 20px; color:var(--ink-soft);
   }
@@ -194,16 +233,6 @@
   .modal-actions{ display:flex; gap:10px; margin-top:20px; }
   .modal-actions .btn{ flex:1; }
   .err-msg{ color:var(--clay); font-size:0.85rem; margin-top:-6px; margin-bottom:12px; display:none; }
-  .link-btn{
-    background:none; border:none; color:var(--sage); text-decoration:underline;
-    font-family:var(--font-body); font-size:0.88rem; cursor:pointer; padding:4px;
-  }
-  .forgot-box{
-    margin-top:14px; background:var(--sage-light); border-radius:12px; padding:14px 16px;
-    font-size:0.85rem; line-height:1.7; text-align:right;
-  }
-  .forgot-box ol{ padding-inline-start:20px; margin:8px 0 0; }
-  .forgot-box p{ margin:0; }
 
   /* ---------- Admin ---------- */
   .admin-topbar{
@@ -293,12 +322,53 @@ const firebaseConfig = {
 };
 const FIRESTORE_COLLECTION = 'meqraa';
 const FIRESTORE_DOC = 'data';
+const CHATS_COLLECTION = 'meqraa_chats';
 
 let db = null;
 let unsubscribeSnapshot = null;
+let chatUnsub = null;
 function isConfigMissing(){
   return !firebaseConfig.apiKey || firebaseConfig.apiKey.indexOf('ضع-') !== -1;
 }
+/* ---------------- تثبيت التطبيق (زرار تحميل سريع) ---------------- */
+let deferredInstallPrompt = null;
+let canInstallApp = false;
+const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+const isStandaloneAlready = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  canInstallApp = true;
+  if(state.view === 'student') render();
+});
+window.addEventListener('appinstalled', () => {
+  canInstallApp = false;
+  deferredInstallPrompt = null;
+  if(state.view === 'student') render();
+});
+
+async function installApp(){
+  if(deferredInstallPrompt){
+    deferredInstallPrompt.prompt();
+    const choice = await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+    canInstallApp = false;
+    render();
+    return;
+  }
+  if(isIOS){
+    showToast('من قائمة المشاركة 🔲⬆️ تحت، اختر "إضافة إلى الشاشة الرئيسية"');
+  }else{
+    showToast('من قائمة المتصفح ⋮ فوق، اختر "إضافة إلى الشاشة الرئيسية" أو "تثبيت التطبيق"');
+  }
+}
+
+function installButtonHtml(){
+  if(isStandaloneAlready) return '';
+  return `<button class="btn btn-primary btn-sm install-btn" onclick="installApp()">⬇ تثبيت التطبيق</button>`;
+}
+
 let state = {
   view: 'student', // student | confirm | adminLogin | adminSetup | admin
   data: null,
@@ -306,9 +376,16 @@ let state = {
   selectedSlot: null,
   lastBooking: null,
   pinAttemptError: false,
-  showForgotHelp: false,
   myBookingsEmail: '',
   myBookingsResults: null,
+  chatEmail: '',
+  chatName: '',
+  chatMessages: null,
+  chatList: [],
+  chatUnreadTotal: 0,
+  activeChatEmail: null,
+  activeChatName: '',
+  activeChatMessages: [],
 };
 
 const starSVG = `<svg class="star-mark" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
@@ -438,11 +515,14 @@ function render(){
   }
   if(state.view === 'student') return renderStudent(app);
   if(state.view === 'myBookings') return renderMyBookings(app);
+  if(state.view === 'chat') return renderStudentChat(app);
   if(state.view === 'confirm') return renderConfirm(app);
   if(state.view === 'adminLogin') return renderAdminLogin(app);
   if(state.view === 'adminSetup') return renderAdminSetup(app);
   if(state.view === 'adminChangePin') return renderAdminChangePin(app);
   if(state.view === 'admin') return renderAdmin(app);
+  if(state.view === 'adminChats') return renderAdminChatList(app);
+  if(state.view === 'adminChatThread') return renderAdminChatThread(app);
 }
 
 function seatMiniHtml(count){
@@ -490,7 +570,10 @@ function renderStudent(app){
       <h1>${escapeHtml(state.data.info.name || 'المقرأة')}</h1>
       ${state.data.info.desc ? `<p class="desc">${escapeHtml(state.data.info.desc)}</p>` : ''}
       <div class="divider"></div>
-      <button class="btn btn-outline btn-sm my-bookings-btn" onclick="goMyBookings()">مواعيدي</button>
+      <div class="header-actions">
+        <button class="btn btn-outline btn-sm my-bookings-btn" onclick="goMyBookings()">مواعيدي</button>
+        <button class="btn btn-outline btn-sm my-bookings-btn" onclick="goStudentChat()">راسل المعلم</button>
+      </div>
     </header>
     <div class="board">${boardHtml}</div>
     ${bookingModalHtml()}
@@ -607,7 +690,6 @@ function renderAdminLogin(app){
         <button class="btn btn-primary" onclick="tryAdminLogin()">دخول</button>
         <button class="btn btn-outline" onclick="backToStudent()">رجوع</button>
       </div>
-      
     </div>
   `;
   setTimeout(()=>{ const f=document.getElementById('pinField'); if(f) f.focus(); },0);
@@ -681,7 +763,8 @@ function renderAdmin(app){
   app.innerHTML = `
     <div class="admin-topbar">
       <h2>لوحة المعلم</h2>
-      <div style="display:flex; gap:8px;">
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn btn-outline btn-sm" onclick="goAdminChats()">الرسائل${state.chatUnreadTotal ? `<span class="chat-badge">${state.chatUnreadTotal}</span>` : ''}</button>
         <button class="btn btn-outline btn-sm" onclick="goChangePin()">تغيير كلمة السر</button>
         <button class="btn btn-outline btn-sm" onclick="adminLogout()">خروج</button>
       </div>
@@ -754,6 +837,8 @@ function clearTeacherHash(){
   }
 }
 function backToStudent(){
+  stopAdminChatList();
+  stopChatThread();
   state.view = 'student';
   state.selectedSlot = null;
   clearTeacherHash();
@@ -761,6 +846,8 @@ function backToStudent(){
   refreshFromServer();
 }
 function adminLogout(){
+  stopAdminChatList();
+  stopChatThread();
   state.view = 'student';
   clearTeacherHash();
   render();
@@ -852,6 +939,261 @@ function stopMyBookingsTimer(){
   if(myBookingsTimer){ clearInterval(myBookingsTimer); myBookingsTimer = null; }
 }
 
+/* ---------------- CHAT (محادثة ثنائية بين كل طالب والمعلم) ---------------- */
+let chatListUnsub = null;
+let chatThreadUnsub = null;
+
+function fmtMsgTime(iso){
+  try{
+    return new Date(iso).toLocaleTimeString('ar-EG', { hour:'2-digit', minute:'2-digit' });
+  }catch(e){ return ''; }
+}
+
+function stopChatThread(){
+  if(chatThreadUnsub){ chatThreadUnsub(); chatThreadUnsub = null; }
+}
+function stopAdminChatList(){
+  if(chatListUnsub){ chatListUnsub(); chatListUnsub = null; }
+  state.chatList = [];
+  state.chatUnreadTotal = 0;
+}
+
+function goStudentChat(){
+  stopMyBookingsTimer();
+  const savedEmail = (localStorage.getItem('meqraaMyEmail') || '').trim();
+  const savedName = (localStorage.getItem('meqraaMyName') || '').trim();
+  state.view = 'chat';
+  state.chatEmail = savedEmail;
+  state.chatName = savedName;
+  state.chatMessages = null;
+  render();
+  if(savedEmail){ subscribeStudentChat(savedEmail); }
+}
+
+function goStudentChatBack(){
+  stopChatThread();
+  backToStudent();
+}
+
+function submitChatIdentity(){
+  const name = document.getElementById('chatNameInput').value.trim();
+  const email = document.getElementById('chatEmailInput').value.trim().toLowerCase();
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  const err = document.getElementById('chatIdErr');
+  if(!name || !emailOk){
+    if(err) err.style.display = 'block';
+    return;
+  }
+  state.chatName = name;
+  state.chatEmail = email;
+  try{
+    localStorage.setItem('meqraaMyEmail', email);
+    localStorage.setItem('meqraaMyName', name);
+  }catch(e){}
+  render();
+  subscribeStudentChat(email);
+}
+
+function subscribeStudentChat(email){
+  stopChatThread();
+  const docRef = db.collection(CHATS_COLLECTION).doc(email);
+  chatThreadUnsub = docRef.onSnapshot((doc)=>{
+    const d = doc.exists ? doc.data() : {};
+    state.chatMessages = d.messages || [];
+    if(d.unreadByStudent){
+      docRef.set({ unreadByStudent: false }, { merge:true }).catch(()=>{});
+    }
+    if(state.view === 'chat') render();
+  }, ()=>{ state.chatMessages = []; render(); });
+}
+
+function sendStudentMessage(){
+  const input = document.getElementById('chatInputStudent');
+  const text = input.value.trim();
+  if(!text || !state.chatEmail) return;
+  const msg = { id: uid(), from:'student', text, at: new Date().toISOString() };
+  db.collection(CHATS_COLLECTION).doc(state.chatEmail).set({
+    studentName: state.chatName,
+    studentEmail: state.chatEmail,
+    messages: firebase.firestore.FieldValue.arrayUnion(msg),
+    lastMessageAt: msg.at,
+    lastMessageFrom: 'student',
+    lastMessageText: text,
+    unreadByTeacher: true,
+    unreadByStudent: false
+  }, { merge:true }).catch(()=>{ showToast('تعذر إرسال الرسالة، حاول تاني'); });
+  input.value = '';
+}
+
+function chatBubblesHtml(messages){
+  if(!messages || !messages.length){
+    return `<div class="chat-empty">مفيش رسائل لسه، ابدأ المحادثة 👋</div>`;
+  }
+  return messages.map(m=>`
+    <div class="msg-bubble ${m.from === 'teacher' ? 'msg-teacher' : 'msg-student'}">
+      ${escapeHtml(m.text)}
+      <span class="msg-time">${fmtMsgTime(m.at)}</span>
+    </div>
+  `).join('');
+}
+
+function renderStudentChat(app){
+  if(!state.chatEmail){
+    app.innerHTML = `
+      <header class="app-head">
+        ${starSVG}
+        <h1>راسل المعلم</h1>
+        <div class="divider"></div>
+        <button class="btn btn-outline btn-sm" onclick="goStudentChatBack()">رجوع للمواعيد</button>
+      </header>
+      <div class="admin-card">
+        <div class="field">
+          <label for="chatNameInput">اسمك</label>
+          <input id="chatNameInput" type="text" value="${escapeAttr(localStorage.getItem('meqraaMyName')||'')}" placeholder="اكتب اسمك">
+        </div>
+        <div class="field">
+          <label for="chatEmailInput">بريدك الإلكتروني</label>
+          <input id="chatEmailInput" type="email" value="${escapeAttr(localStorage.getItem('meqraaMyEmail')||'')}" placeholder="example@email.com">
+        </div>
+        <div class="err-msg" id="chatIdErr">من فضلك اكتب اسمك وبريد إلكتروني صحيح</div>
+        <button class="btn btn-primary" onclick="submitChatIdentity()">بدء المحادثة</button>
+      </div>
+    `;
+    return;
+  }
+
+  app.innerHTML = `
+    <header class="app-head">
+      ${starSVG}
+      <h1>راسل المعلم</h1>
+      <div class="divider"></div>
+      <button class="btn btn-outline btn-sm" onclick="goStudentChatBack()">رجوع للمواعيد</button>
+    </header>
+    <div class="chat-wrap">
+      <div class="chat-messages" id="chatMessagesBox">
+        ${state.chatMessages === null ? '<div class="chat-empty">جارٍ التحميل...</div>' : chatBubblesHtml(state.chatMessages)}
+      </div>
+      <div class="chat-input-row">
+        <input id="chatInputStudent" type="text" placeholder="اكتب رسالتك...">
+        <button class="btn btn-primary btn-sm" onclick="sendStudentMessage()">إرسال</button>
+      </div>
+    </div>
+  `;
+  const box = document.getElementById('chatMessagesBox');
+  if(box) box.scrollTop = box.scrollHeight;
+  const input = document.getElementById('chatInputStudent');
+  if(input){
+    input.addEventListener('keydown', (e)=>{ if(e.key === 'Enter') sendStudentMessage(); });
+  }
+}
+
+/* ---------------- CHAT: جانب المعلم ---------------- */
+function startAdminChatList(){
+  if(chatListUnsub) return;
+  chatListUnsub = db.collection(CHATS_COLLECTION).orderBy('lastMessageAt', 'desc').onSnapshot((snap)=>{
+    state.chatList = snap.docs.map(d=>({ id: d.id, ...d.data() }));
+    state.chatUnreadTotal = state.chatList.filter(c=>c.unreadByTeacher).length;
+    if(state.view === 'admin' || state.view === 'adminChats') render();
+  }, ()=>{});
+}
+
+function goAdminChats(){
+  state.view = 'adminChats';
+  render();
+}
+function goBackFromAdminChats(){
+  state.view = 'admin';
+  render();
+}
+
+function openAdminChatThread(email){
+  stopChatThread();
+  state.activeChatEmail = email;
+  const known = state.chatList.find(c=>c.id === email);
+  state.activeChatName = (known && known.studentName) || email;
+  state.activeChatMessages = (known && known.messages) || [];
+  state.view = 'adminChatThread';
+  render();
+
+  const docRef = db.collection(CHATS_COLLECTION).doc(email);
+  chatThreadUnsub = docRef.onSnapshot((doc)=>{
+    const d = doc.exists ? doc.data() : {};
+    state.activeChatMessages = d.messages || [];
+    state.activeChatName = d.studentName || email;
+    if(d.unreadByTeacher){
+      docRef.set({ unreadByTeacher: false }, { merge:true }).catch(()=>{});
+    }
+    if(state.view === 'adminChatThread') render();
+  }, ()=>{});
+}
+
+function goBackFromChatThread(){
+  stopChatThread();
+  state.view = 'adminChats';
+  render();
+}
+
+function sendTeacherMessage(){
+  const input = document.getElementById('chatInputTeacher');
+  const text = input.value.trim();
+  if(!text || !state.activeChatEmail) return;
+  const msg = { id: uid(), from:'teacher', text, at: new Date().toISOString() };
+  db.collection(CHATS_COLLECTION).doc(state.activeChatEmail).set({
+    messages: firebase.firestore.FieldValue.arrayUnion(msg),
+    lastMessageAt: msg.at,
+    lastMessageFrom: 'teacher',
+    lastMessageText: text,
+    unreadByStudent: true,
+    unreadByTeacher: false
+  }, { merge:true }).catch(()=>{ showToast('تعذر إرسال الرسالة، حاول تاني'); });
+  input.value = '';
+}
+
+function renderAdminChatList(app){
+  const list = state.chatList || [];
+  const rows = list.length ? list.map(c=>`
+    <div class="chat-list-item" onclick="openAdminChatThread('${escapeAttr(c.id)}')">
+      <div style="flex:1; min-width:0;">
+        <div class="cl-name">${escapeHtml(c.studentName || c.id)}</div>
+        <div class="cl-preview">${escapeHtml((c.lastMessageFrom === 'teacher' ? 'أنت: ' : '') + (c.lastMessageText || ''))}</div>
+      </div>
+      ${c.unreadByTeacher ? '<span class="unread-dot"></span>' : ''}
+    </div>
+  `).join('') : `<div class="empty-state"><div>لا توجد رسائل بعد</div></div>`;
+
+  app.innerHTML = `
+    <div class="admin-topbar">
+      <h2>الرسائل</h2>
+      <button class="btn btn-outline btn-sm" onclick="goBackFromAdminChats()">رجوع للوحة المعلم</button>
+    </div>
+    ${rows}
+  `;
+}
+
+function renderAdminChatThread(app){
+  app.innerHTML = `
+    <div class="admin-topbar">
+      <h2>${escapeHtml(state.activeChatName)}</h2>
+      <button class="btn btn-outline btn-sm" onclick="goBackFromChatThread()">رجوع للرسائل</button>
+    </div>
+    <div class="chat-wrap">
+      <div class="chat-messages" id="chatMessagesBoxAdmin">
+        ${chatBubblesHtml(state.activeChatMessages)}
+      </div>
+      <div class="chat-input-row">
+        <input id="chatInputTeacher" type="text" placeholder="اكتب ردك...">
+        <button class="btn btn-primary btn-sm" onclick="sendTeacherMessage()">إرسال</button>
+      </div>
+    </div>
+  `;
+  const box = document.getElementById('chatMessagesBoxAdmin');
+  if(box) box.scrollTop = box.scrollHeight;
+  const input = document.getElementById('chatInputTeacher');
+  if(input){
+    input.addEventListener('keydown', (e)=>{ if(e.key === 'Enter') sendTeacherMessage(); });
+  }
+}
+
 async function createAdminPin(){
   const p1 = document.getElementById('pinField1').value.trim();
   const p2 = document.getElementById('pinField2').value.trim();
@@ -864,13 +1206,10 @@ async function createAdminPin(){
   await saveData();
   state.view = 'admin';
   render();
+  startAdminChatList();
   showToast('تم إنشاء رمز الدخول بنجاح');
 }
 
-function toggleForgotHelp(){
-  state.showForgotHelp = !state.showForgotHelp;
-  render();
-}
 function goChangePin(){
   state.view = 'adminChangePin';
   render();
@@ -901,6 +1240,7 @@ function tryAdminLogin(){
     state.view = 'admin';
     state.pinAttemptError = false;
     render();
+    startAdminChatList();
   }else{
     state.pinAttemptError = true;
     render();
