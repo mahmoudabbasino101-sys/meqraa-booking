@@ -376,6 +376,42 @@ window.addEventListener('appinstalled', () => {
   if(state.view === 'student') render();
 });
 
+function notifButtonHtml(){
+  if(!('Notification' in window)) return '';
+  if(Notification.permission === 'granted' || Notification.permission === 'denied') return '';
+  return `<button class="btn btn-outline btn-sm my-bookings-btn" onclick="requestNotifPermission()">🔔 فعّل تنبيهات المواعيد</button>`;
+}
+
+function requestNotifPermission(){
+  if(!('Notification' in window)){
+    showToast('للأسف متصفحك (أو آيفون) لا يدعم هذا النوع من التنبيهات');
+    return;
+  }
+  Notification.requestPermission().then((perm)=>{
+    if(perm === 'granted'){
+      showToast('تم تفعيل التنبيهات، هتوصلك وأنت فاتح الموقع');
+    }else{
+      showToast('تم رفض الإذن، تقدر تفعّله لاحقًا من إعدادات الموقع في المتصفح');
+    }
+    if(state.view === 'student') render();
+  });
+}
+
+function notifyIfNewSlots(oldData, newData){
+  if(!oldData || !oldData.slots || !newData || !newData.slots) return;
+  if(!('Notification' in window) || Notification.permission !== 'granted') return;
+  const oldIds = new Set(oldData.slots.map(s=>s.id));
+  const added = newData.slots.filter(s => !oldIds.has(s.id) && !isSlotPast(s));
+  added.forEach((s)=>{
+    try{
+      new Notification('ميعاد جديد في ' + ((newData.info && newData.info.name) || 'المقرأة'), {
+        body: fmtDate(s.date) + ' - ' + fmtTime(s.time),
+        icon: 'icon-192.png'
+      });
+    }catch(e){}
+  });
+}
+
 async function installApp(){
   if(deferredInstallPrompt){
     deferredInstallPrompt.prompt();
@@ -415,6 +451,7 @@ let state = {
   activeChatName: '',
   activeChatMessages: [],
   adminMenuOpen: false,
+  notifyMessage: '',
 };
 
 const starSVG = `<svg class="star-mark" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
@@ -460,7 +497,9 @@ async function loadData(){
     // تحديث فوري على كل الأجهزة لحظة حدوث أي حجز أو تعديل
     unsubscribeSnapshot = docRef.onSnapshot((doc)=>{
       if(!doc.exists) return;
-      state.data = doc.data();
+      const newData = doc.data();
+      notifyIfNewSlots(state.data, newData);
+      state.data = newData;
       if(state.view === 'student' || state.view === 'admin'){ render(); }
     }, (err)=>{ console.error(err); });
   }catch(e){
@@ -554,6 +593,7 @@ function render(){
   if(state.view === 'adminSetup') return renderAdminSetup(app);
   if(state.view === 'adminChangePin') return renderAdminChangePin(app);
   if(state.view === 'admin') return renderAdmin(app);
+  if(state.view === 'adminNotify') return renderAdminNotify(app);
   if(state.view === 'adminPastSlots') return renderAdminPastSlots(app);
   if(state.view === 'adminChats') return renderAdminChatList(app);
   if(state.view === 'adminChatThread') return renderAdminChatThread(app);
@@ -607,6 +647,7 @@ function renderStudent(app){
       <div class="header-actions">
         <button class="btn btn-outline btn-sm my-bookings-btn" onclick="goMyBookings()">مواعيدي</button>
         <button class="btn btn-outline btn-sm my-bookings-btn" onclick="goStudentChat()">راسل المعلم</button>
+        ${notifButtonHtml()}
       </div>
     </header>
     <div class="board">${boardHtml}</div>
@@ -815,6 +856,7 @@ function renderAdmin(app){
         </button>
         <div class="admin-menu-dropdown ${state.adminMenuOpen ? 'open' : ''}">
           <button class="admin-menu-item" onclick="adminMenuGo('goAdminChats')">الرسائل${state.chatUnreadTotal ? `<span class="chat-badge">${state.chatUnreadTotal}</span>` : ''}</button>
+          <button class="admin-menu-item" onclick="state.adminMenuOpen=false; goAdminNotify();">إشعار واتساب للطلاب</button>
           <button class="admin-menu-item" onclick="adminMenuGo('goAdminPastSlots')">مواعيد سابقة${pastCount ? `<span class="chat-badge">${pastCount}</span>` : ''}</button>
           <button class="admin-menu-item" onclick="adminMenuGo('goChangePin')">تغيير كلمة السر</button>
           <button class="admin-menu-item" onclick="adminMenuGo('adminLogout')">خروج</button>
@@ -1406,6 +1448,81 @@ async function confirmBooking(){
   render();
 }
 
+function defaultNotifyMessage(slot){
+  const link = window.location.origin + window.location.pathname;
+  if(slot){
+    return `مرحبًا 👋\nتم إضافة ميعاد جديد في ${state.data.info.name || 'المقرأة'}:\n${fmtDate(slot.date)} - ${fmtTime(slot.time)}\n\nاحجز مكانك من هنا:\n${link}`;
+  }
+  return `مرحبًا 👋\nفيه مواعيد جديدة متاحة في ${state.data.info.name || 'المقرأة'}.\nاحجز مكانك من هنا:\n${link}`;
+}
+
+function getKnownStudents(){
+  const map = new Map();
+  (state.data.slots || []).forEach(s=>{
+    (s.bookings || []).forEach(b=>{
+      const phone = (b.phone || '').trim();
+      if(phone && !map.has(phone)){
+        map.set(phone, { name: b.name, phone });
+      }
+    });
+  });
+  return Array.from(map.values()).sort((a,b)=> a.name.localeCompare(b.name, 'ar'));
+}
+
+function normalizePhoneForWhatsApp(phone){
+  let digits = (phone || '').replace(/\D/g, '');
+  if(digits.startsWith('00')){
+    digits = digits.slice(2);
+  }else if(digits.startsWith('0') && digits.length === 11){
+    digits = '2' + digits; // رقم مصري محلي 01xxxxxxxxx -> 201xxxxxxxxx (كود +20)
+  }
+  return digits;
+}
+
+function sendWhatsApp(phone){
+  const box = document.getElementById('notifyMessageBox');
+  const text = box ? box.value : state.notifyMessage;
+  const num = normalizePhoneForWhatsApp(phone);
+  const url = 'https://wa.me/' + num + '?text=' + encodeURIComponent(text);
+  window.open(url, '_blank');
+}
+
+function goAdminNotify(prefillMessage){
+  state.notifyMessage = prefillMessage || defaultNotifyMessage(null);
+  state.view = 'adminNotify';
+  render();
+}
+function goBackFromAdminNotify(){
+  state.view = 'admin';
+  render();
+}
+
+function renderAdminNotify(app){
+  const students = getKnownStudents();
+  app.innerHTML = `
+    <div class="admin-topbar">
+      <h2>إشعار واتساب للطلاب</h2>
+      <button class="btn btn-outline btn-sm" onclick="goBackFromAdminNotify()">رجوع للوحة المعلم</button>
+    </div>
+    <div class="admin-card">
+      <div class="field" style="margin-bottom:0;">
+        <label>نص الرسالة (تقدر تعدّلها)</label>
+        <textarea id="notifyMessageBox" rows="5" style="width:100%; font-family:inherit; font-size:0.88rem; padding:9px 10px; border:1px solid var(--paper-deep); border-radius:8px; resize:vertical;">${escapeHtml(state.notifyMessage)}</textarea>
+      </div>
+    </div>
+    <div class="section-title">أرسل لكل طالب (${students.length})</div>
+    ${students.length ? `<div class="admin-card">${students.map(s=>`
+      <div class="roster-item" style="margin-bottom:8px;">
+        <span class="roster-info"><span class="name">${escapeHtml(s.name)}</span> — ${escapeHtml(s.phone)}</span>
+        <button class="btn btn-primary btn-sm" onclick="sendWhatsApp('${escapeAttr(s.phone)}')">📲 واتساب</button>
+      </div>
+    `).join('')}</div>` : '<div class="empty-state"><div>لا يوجد طلاب لديهم رقم هاتف مسجل بعد</div></div>'}
+    <p style="font-size:0.78rem; color:var(--ink-soft); margin-top:14px; text-align:center;">
+      هتفتح واتساب لكل طالب لوحده برسالة جاهزة — تدوس إرسال يدويًا في كل مرة.
+    </p>
+  `;
+}
+
 async function addSlot(){
   const date = document.getElementById('newDate').value;
   const time = document.getElementById('newTime').value;
@@ -1414,10 +1531,11 @@ async function addSlot(){
     document.getElementById('addErr').style.display = 'block';
     return;
   }
-  state.data.slots.push({ id: uid(), date, time, duration: SLOT_MINUTES, note, bookings: [] });
+  const newSlot = { id: uid(), date, time, duration: SLOT_MINUTES, note, bookings: [] };
+  state.data.slots.push(newSlot);
   await saveData();
-  render();
   showToast('تم إضافة الميعاد');
+  goAdminNotify(defaultNotifyMessage(newSlot));
 }
 
 async function deleteSlot(id){
