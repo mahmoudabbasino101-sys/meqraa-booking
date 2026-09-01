@@ -1505,13 +1505,16 @@ function renderAdminNotify(app){
       <button class="btn btn-outline btn-sm" onclick="goBackFromAdminNotify()">رجوع للوحة المعلم</button>
     </div>
     <div class="admin-card">
-      <div class="field" style="margin-bottom:0;">
+      <div class="field" style="margin-bottom:10px;">
         <label>نص الرسالة (تقدر تعدّلها)</label>
         <textarea id="notifyMessageBox" rows="5" style="width:100%; font-family:inherit; font-size:0.88rem; padding:9px 10px; border:1px solid var(--paper-deep); border-radius:8px; resize:vertical;">${escapeHtml(state.notifyMessage)}</textarea>
       </div>
+      <button class="btn btn-outline btn-sm" onclick="copyNotifyMessage()">📋 نسخ الرسالة (للصقها في جروب الواتساب)</button>
     </div>
-    <div class="section-title">أرسل لكل طالب (${students.length})</div>
-    ${students.length ? `<div class="admin-card">${students.map(s=>`
+    <div class="section-title">أرسل لكل طالب لوحده (${students.length})</div>
+    ${students.length ? `
+      <button class="btn btn-outline btn-sm" style="margin-bottom:10px;" onclick="copyAllNumbers()">📋 نسخ كل الأرقام (لعمل قائمة بث)</button>
+      <div class="admin-card">${students.map(s=>`
       <div class="roster-item" style="margin-bottom:8px;">
         <span class="roster-info"><span class="name">${escapeHtml(s.name)}</span> — ${escapeHtml(s.phone)}</span>
         <button class="btn btn-primary btn-sm" onclick="sendWhatsApp('${escapeAttr(s.phone)}')">📲 واتساب</button>
@@ -1521,6 +1524,26 @@ function renderAdminNotify(app){
       هتفتح واتساب لكل طالب لوحده برسالة جاهزة — تدوس إرسال يدويًا في كل مرة.
     </p>
   `;
+}
+
+function copyNotifyMessage(){
+  const box = document.getElementById('notifyMessageBox');
+  const text = box ? box.value : state.notifyMessage;
+  navigator.clipboard.writeText(text).then(()=>{
+    showToast('تم نسخ الرسالة، افتح واتساب والصقها');
+  }).catch(()=>{
+    showToast('تعذر النسخ التلقائي، انسخ النص يدويًا من الصندوق');
+  });
+}
+
+function copyAllNumbers(){
+  const students = getKnownStudents();
+  const text = students.map(s=> s.name + ': ' + s.phone).join('\n');
+  navigator.clipboard.writeText(text).then(()=>{
+    showToast('تم نسخ كل الأرقام');
+  }).catch(()=>{
+    showToast('تعذر النسخ التلقائي');
+  });
 }
 
 async function addSlot(){
