@@ -596,6 +596,7 @@ function render(){
   if(state.view === 'adminChangePin') return renderAdminChangePin(app);
   if(state.view === 'admin') return renderAdmin(app);
   if(state.view === 'adminNotify') return renderAdminNotify(app);
+  if(state.view === 'adminStudents') return renderAdminStudents(app);
   if(state.view === 'adminPastSlots') return renderAdminPastSlots(app);
   if(state.view === 'adminChats') return renderAdminChatList(app);
   if(state.view === 'adminChatThread') return renderAdminChatThread(app);
@@ -858,6 +859,7 @@ function renderAdmin(app){
         </button>
         <div class="admin-menu-dropdown ${state.adminMenuOpen ? 'open' : ''}">
           <button class="admin-menu-item" onclick="adminMenuGo('goAdminChats')">الرسائل${state.chatUnreadTotal ? `<span class="chat-badge">${state.chatUnreadTotal}</span>` : ''}</button>
+          <button class="admin-menu-item" onclick="adminMenuGo('goAdminStudents')">طلاب المقرأة</button>
           <button class="admin-menu-item" onclick="state.adminMenuOpen=false; goAdminNotify();">إشعار واتساب للطلاب</button>
           <button class="admin-menu-item" onclick="adminMenuGo('goAdminPastSlots')">مواعيد سابقة${pastCount ? `<span class="chat-badge">${pastCount}</span>` : ''}</button>
           <button class="admin-menu-item" onclick="adminMenuGo('goChangePin')">تغيير كلمة السر</button>
@@ -1475,6 +1477,45 @@ function getKnownStudents(){
   return [...(state.data.students || [])].sort((a,b)=> a.name.localeCompare(b.name, 'ar'));
 }
 
+async function deleteKnownStudent(phone){
+  if(!confirm('حذف هذا الطالب من قائمة الأرقام المحفوظة؟ (ده مش هيلغي حجوزاته، بس هيشيله من قائمة الإرسال)')) return;
+  state.data.students = (state.data.students || []).filter(s => s.phone !== phone);
+  await saveData();
+  render();
+  showToast('تم حذف الرقم');
+}
+
+function goAdminStudents(){
+  state.view = 'adminStudents';
+  render();
+}
+function goBackFromAdminStudents(){
+  state.view = 'admin';
+  render();
+}
+function renderAdminStudents(app){
+  const students = getKnownStudents();
+  app.innerHTML = `
+    <div class="admin-topbar">
+      <h2>طلاب المقرأة</h2>
+      <button class="btn btn-outline btn-sm" onclick="goBackFromAdminStudents()">رجوع للوحة المعلم</button>
+    </div>
+    <div class="section-title">كل الطلاب المسجلين (${students.length})</div>
+    ${students.length ? `<div class="admin-card">${students.map(s=>`
+      <div class="roster-item" style="margin-bottom:8px;">
+        <span class="roster-info"><span class="name">${escapeHtml(s.name)}</span> — ${escapeHtml(s.phone)}</span>
+        <span class="roster-actions">
+          <a class="call-btn" href="tel:${escapeAttr(s.phone)}" title="اتصال بـ ${escapeAttr(s.name)}">📞</a>
+          <button class="btn btn-danger btn-sm" onclick="deleteKnownStudent('${escapeAttr(s.phone)}')">حذف</button>
+        </span>
+      </div>
+    `).join('')}</div>` : '<div class="empty-state"><div>لا يوجد طلاب مسجلين بعد</div></div>'}
+    <p style="font-size:0.78rem; color:var(--ink-soft); margin-top:14px; text-align:center;">
+      دي كل الأرقام اللي اتسجلت عبر الحجز ولو مرة، وبتفضل هنا حتى لو الحجز اتلغى أو الميعاد اتحذف.
+    </p>
+  `;
+}
+
 function normalizePhoneForWhatsApp(phone){
   let digits = (phone || '').replace(/\D/g, '');
   if(digits.startsWith('00')){
@@ -1523,7 +1564,10 @@ function renderAdminNotify(app){
       <div class="admin-card">${students.map(s=>`
       <div class="roster-item" style="margin-bottom:8px;">
         <span class="roster-info"><span class="name">${escapeHtml(s.name)}</span> — ${escapeHtml(s.phone)}</span>
-        <button class="btn btn-primary btn-sm" onclick="sendWhatsApp('${escapeAttr(s.phone)}')">📲 واتساب</button>
+        <span class="roster-actions">
+          <button class="btn btn-primary btn-sm" onclick="sendWhatsApp('${escapeAttr(s.phone)}')">📲 واتساب</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteKnownStudent('${escapeAttr(s.phone)}')">حذف</button>
+        </span>
       </div>
     `).join('')}</div>` : '<div class="empty-state"><div>لا يوجد طلاب لديهم رقم هاتف مسجل بعد</div></div>'}
     <p style="font-size:0.78rem; color:var(--ink-soft); margin-top:14px; text-align:center;">
