@@ -825,6 +825,7 @@ function adminSlotRowHtml(s){
                 <span class="roster-info"><span class="name">${escapeHtml(b.name)}</span>${b.email ? ' — '+escapeHtml(b.email) : ''}${b.phone ? ' — '+escapeHtml(b.phone) : ''}</span>
                 <span class="roster-actions">
                   ${b.phone ? `<a class="call-btn" href="tel:${escapeAttr(b.phone)}" title="اتصال بـ ${escapeAttr(b.name)}">📞</a>` : ''}
+                  ${b.email ? `<button class="btn btn-outline btn-sm" onclick="openAdminChatThread('${escapeAttr(b.email)}','${escapeAttr(b.name)}')">💬 رسالة</button>` : ''}
                   <button class="btn btn-outline btn-sm" onclick="cancelBooking('${s.id}','${b.id}')">إلغاء</button>
                 </span>
               </div>`).join('')}</div>`
@@ -1236,11 +1237,11 @@ function goBackFromAdminChats(){
   render();
 }
 
-function openAdminChatThread(email){
+function openAdminChatThread(email, fallbackName){
   stopChatThread();
   state.activeChatEmail = email;
   const known = state.chatList.find(c=>c.id === email);
-  state.activeChatName = (known && known.studentName) || email;
+  state.activeChatName = (known && known.studentName) || fallbackName || email;
   state.activeChatMessages = (known && known.messages) || [];
   state.view = 'adminChatThread';
   render();
@@ -1249,7 +1250,7 @@ function openAdminChatThread(email){
   chatThreadUnsub = docRef.onSnapshot((doc)=>{
     const d = doc.exists ? doc.data() : {};
     state.activeChatMessages = d.messages || [];
-    state.activeChatName = d.studentName || email;
+    state.activeChatName = d.studentName || fallbackName || email;
     if(d.unreadByTeacher){
       docRef.set({ unreadByTeacher: false }, { merge:true }).catch(()=>{});
     }
@@ -1439,6 +1440,15 @@ async function confirmBooking(){
   s.bookings = s.bookings || [];
   if(s.bookings.length >= MAX_SEATS){
     showToast('عذرًا، اكتمل هذا الميعاد بالفعل');
+    state.selectedSlot = null;
+    render();
+    return;
+  }
+  const alreadyBookedSameDay = state.data.slots.some(x =>
+    x.date === s.date && (x.bookings || []).some(b => (b.email || '').toLowerCase() === email)
+  );
+  if(alreadyBookedSameDay){
+    showToast('عندك حجز بالفعل في نفس اليوم، مسموح بحجز واحد فقط في اليوم');
     state.selectedSlot = null;
     render();
     return;
