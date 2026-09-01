@@ -469,7 +469,7 @@ const starSVG = `<svg class="star-mark" viewBox="0 0 100 100" xmlns="http://www.
 </svg>`;
 
 function defaultData(){
-  return { info: { name: 'المقرأة', desc: 'سجّل حضورك في الوقت المناسب لك' }, pin: null, slots: [] };
+  return { info: { name: 'المقرأة', desc: 'سجّل حضورك في الوقت المناسب لك' }, pin: null, slots: [], students: [] };
 }
 
 function renderConfigWarning(){
@@ -492,12 +492,14 @@ async function loadData(){
     const docRef = db.collection(FIRESTORE_COLLECTION).doc(FIRESTORE_DOC);
     const snap = await docRef.get();
     state.data = snap.exists ? snap.data() : defaultData();
+    if(!state.data.students){ state.data.students = []; }
     if(!snap.exists){ await docRef.set(state.data); }
 
     // تحديث فوري على كل الأجهزة لحظة حدوث أي حجز أو تعديل
     unsubscribeSnapshot = docRef.onSnapshot((doc)=>{
       if(!doc.exists) return;
       const newData = doc.data();
+      if(!newData.students){ newData.students = []; }
       notifyIfNewSlots(state.data, newData);
       state.data = newData;
       if(state.view === 'student' || state.view === 'admin'){ render(); }
@@ -1440,12 +1442,25 @@ async function confirmBooking(){
     return;
   }
   s.bookings.push({ id: uid(), name, email, phone, at: new Date().toISOString() });
+  upsertKnownStudent(name, phone);
   await saveData();
   try{ localStorage.setItem('meqraaMyEmail', email); }catch(e){}
   state.lastBooking = { date: s.date, time: s.time, name };
   state.selectedSlot = null;
   state.view = 'confirm';
   render();
+}
+
+function upsertKnownStudent(name, phone){
+  const p = (phone || '').trim();
+  if(!p) return;
+  state.data.students = state.data.students || [];
+  const existing = state.data.students.find(st => st.phone === p);
+  if(existing){
+    existing.name = name; // نحدّث الاسم لو الطالب كتبه مختلف شوية في مرة تانية
+  }else{
+    state.data.students.push({ name, phone: p });
+  }
 }
 
 function defaultNotifyMessage(slot){
@@ -1457,16 +1472,7 @@ function defaultNotifyMessage(slot){
 }
 
 function getKnownStudents(){
-  const map = new Map();
-  (state.data.slots || []).forEach(s=>{
-    (s.bookings || []).forEach(b=>{
-      const phone = (b.phone || '').trim();
-      if(phone && !map.has(phone)){
-        map.set(phone, { name: b.name, phone });
-      }
-    });
-  });
-  return Array.from(map.values()).sort((a,b)=> a.name.localeCompare(b.name, 'ar'));
+  return [...(state.data.students || [])].sort((a,b)=> a.name.localeCompare(b.name, 'ar'));
 }
 
 function normalizePhoneForWhatsApp(phone){
@@ -1589,6 +1595,7 @@ async function refreshFromServer(silent){
     const snap = await db.collection(FIRESTORE_COLLECTION).doc(FIRESTORE_DOC).get();
     if(snap.exists){
       state.data = snap.data();
+      if(!state.data.students){ state.data.students = []; }
       if(!silent && (state.view==='student')) render();
     }
   }catch(e){ /* ignore */ }
