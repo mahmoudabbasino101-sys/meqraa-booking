@@ -36,11 +36,12 @@
     background:var(--paper);
     color:var(--ink);
     min-height:100vh;
+    overflow-x:hidden;
     background-image:
       radial-gradient(circle at 15% 8%, rgba(184,146,63,0.08), transparent 40%),
       radial-gradient(circle at 90% 85%, rgba(22,51,58,0.06), transparent 45%);
   }
-  .wrap{max-width:640px; margin:0 auto; padding:0 18px 60px;}
+  .wrap{max-width:640px; margin:0 auto; padding:0 18px 60px; overflow-x:hidden;}
 
   /* ---------- Header ---------- */
   header.app-head{
@@ -146,15 +147,15 @@
 
   .roster-list{ display:flex; flex-direction:column; gap:6px; margin-top:8px; }
   .roster-item{
-    display:flex; align-items:center; justify-content:space-between; gap:8px;
-    background:var(--sage-light); border-radius:8px; padding:6px 10px; font-size:0.82rem;
+    display:flex; flex-direction:column; gap:8px;
+    background:var(--sage-light); border-radius:8px; padding:10px 12px; font-size:0.82rem;
   }
   .roster-item .name{ font-weight:700; color:var(--ink); }
-  .roster-item .roster-info{ flex:1; min-width:0; }
-  .roster-item .roster-actions{ display:flex; align-items:center; gap:6px; flex-shrink:0; }
+  .roster-item .roster-info{ line-height:1.6; word-break:break-word; }
+  .roster-item .roster-actions{ display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
   .call-btn{
-    display:flex; align-items:center; justify-content:center; width:26px; height:26px;
-    border-radius:50%; background:var(--gold); color:#fff; text-decoration:none; font-size:13px;
+    display:flex; align-items:center; justify-content:center; width:30px; height:30px;
+    border-radius:50%; background:var(--gold); color:#fff; text-decoration:none; font-size:14px;
     flex-shrink:0;
   }
 
@@ -293,12 +294,12 @@
   .pin-input:focus{ outline:none; border-color:var(--gold); }
 
   .admin-slot{
-    display:flex; align-items:flex-start; justify-content:space-between;
-    padding:14px 0; border-top:1px dashed var(--paper-deep); gap:10px;
+    display:flex; flex-direction:column; gap:10px;
+    padding:14px 0; border-top:1px dashed var(--paper-deep);
   }
   .admin-slot:first-child{ border-top:none; }
   .admin-slot .meta{ font-size:0.82rem; color:var(--ink-soft); margin-top:4px; }
-  .admin-slot .actions{ display:flex; flex-direction:column; gap:6px; align-items:stretch; }
+  .admin-slot .actions{ display:flex; justify-content:flex-end; }
   .booked-by{ font-weight:700; color:var(--clay); }
 
   .toast{
@@ -328,6 +329,7 @@
 <!-- Firebase (تخزين مجاني حقيقي يشتغل بعد رفع الموقع على أي استضافة، بما فيها GitHub Pages) -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <div class="wrap" id="app"></div>
 
 <script>
@@ -452,6 +454,8 @@ let state = {
   activeChatMessages: [],
   adminMenuOpen: false,
   notifyMessage: '',
+  authUser: null,
+  authError: '',
 };
 
 const starSVG = `<svg class="star-mark" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
@@ -489,6 +493,11 @@ async function loadData(){
   try{
     firebase.initializeApp(firebaseConfig);
     db = firebase.firestore();
+    firebase.auth().onAuthStateChanged((user)=>{
+      state.authUser = user ? { uid:user.uid, email:user.email, displayName:user.displayName } : null;
+      if(state.view === 'student' || state.view === 'studentAuth'){ render(); }
+    });
+    firebase.auth().getRedirectResult().catch(()=>{});
     const docRef = db.collection(FIRESTORE_COLLECTION).doc(FIRESTORE_DOC);
     const snap = await docRef.get();
     state.data = snap.exists ? snap.data() : defaultData();
@@ -590,6 +599,7 @@ function render(){
   if(state.view === 'student') return renderStudent(app);
   if(state.view === 'myBookings') return renderMyBookings(app);
   if(state.view === 'chat') return renderStudentChat(app);
+  if(state.view === 'studentAuth') return renderStudentAuth(app);
   if(state.view === 'confirm') return renderConfirm(app);
   if(state.view === 'adminLogin') return renderAdminLogin(app);
   if(state.view === 'adminSetup') return renderAdminSetup(app);
@@ -647,9 +657,13 @@ function renderStudent(app){
       <h1>${escapeHtml(state.data.info.name || 'المقرأة')}</h1>
       ${state.data.info.desc ? `<p class="desc">${escapeHtml(state.data.info.desc)}</p>` : ''}
       <div class="divider"></div>
+      ${state.authUser
+        ? `<p style="font-size:0.82rem; color:var(--ink-soft); margin:12px 0 0;">مسجّل دخولك: ${escapeHtml(state.authUser.displayName || state.authUser.email)} · <a href="#" onclick="event.preventDefault(); studentSignOut();" style="color:var(--sage);">خروج</a></p>`
+        : ''}
       <div class="header-actions">
         <button class="btn btn-outline btn-sm my-bookings-btn" onclick="goMyBookings()">مواعيدي</button>
         <button class="btn btn-outline btn-sm my-bookings-btn" onclick="goStudentChat()">راسل المعلم</button>
+        ${!state.authUser ? `<button class="btn btn-outline btn-sm my-bookings-btn" onclick="goStudentAuth()">🔐 تسجيل الدخول</button>` : ''}
         ${notifButtonHtml()}
       </div>
     </header>
@@ -715,6 +729,7 @@ function bookingModalHtml(){
   const s = state.data.slots.find(x=>x.id===state.selectedSlot);
   if(!s) return '';
   const count = (s.bookings||[]).length;
+  const au = state.authUser;
   return `
   <div class="modal-backdrop" onclick="closeBookingOnBackdrop(event)">
     <div class="modal">
@@ -722,11 +737,14 @@ function bookingModalHtml(){
       <div class="sub">${fmtDate(s.date)} — ${fmtTime(s.time)} (متبقي ${MAX_SEATS-count} من ${MAX_SEATS})</div>
       <div class="field">
         <label for="stName">الاسم</label>
-        <input id="stName" type="text" placeholder="اكتب اسمك">
+        <input id="stName" type="text" placeholder="اكتب اسمك" value="${escapeAttr((au && au.displayName) || '')}">
       </div>
       <div class="field">
         <label for="stEmail">البريد الإلكتروني</label>
-        <input id="stEmail" type="email" placeholder="example@email.com" value="${escapeAttr(localStorage.getItem('meqraaMyEmail')||'')}">
+        ${au
+          ? `<input id="stEmail" type="email" value="${escapeAttr(au.email)}" disabled style="background:var(--sage-light);">
+             <div style="font-size:0.76rem; color:var(--ink-soft); margin-top:4px;">مسجّل دخولك بهذا البريد</div>`
+          : `<input id="stEmail" type="email" placeholder="example@email.com" value="${escapeAttr(localStorage.getItem('meqraaMyEmail')||'')}">`}
       </div>
       <div class="field">
         <label for="stPhone">رقم الهاتف (اختياري)</label>
@@ -976,9 +994,10 @@ let myBookingsTimer = null;
 function goMyBookings(){
   stopMyBookingsTimer();
   state.view = 'myBookings';
-  state.myBookingsEmail = (localStorage.getItem('meqraaMyEmail') || '').trim();
+  state.myBookingsEmail = state.authUser ? state.authUser.email : (localStorage.getItem('meqraaMyEmail') || '').trim();
   state.myBookingsResults = null;
   render();
+  if(state.authUser){ searchMyBookings(state.authUser.email); }
 }
 
 function goStudentFromMyBookings(){
@@ -986,8 +1005,8 @@ function goStudentFromMyBookings(){
   backToStudent();
 }
 
-function searchMyBookings(){
-  const raw = document.getElementById('myEmailInput').value.trim().toLowerCase();
+function searchMyBookings(directEmail){
+  const raw = directEmail || document.getElementById('myEmailInput').value.trim().toLowerCase();
   if(!raw) return;
   state.myBookingsEmail = raw;
   try{ localStorage.setItem('meqraaMyEmail', raw); }catch(e){}
@@ -1075,16 +1094,109 @@ function stopAdminChatList(){
   state.chatUnreadTotal = 0;
 }
 
+/* ---------------- تسجيل دخول الطلاب (إيميل أو جوجل) ---------------- */
+function translateAuthError(err){
+  const map = {
+    'auth/wrong-password': 'كلمة السر غلط',
+    'auth/invalid-email': 'البريد الإلكتروني مش صحيح',
+    'auth/weak-password': 'كلمة السر لازم تكون 6 أحرف على الأقل',
+    'auth/email-already-in-use': 'في حساب فعلاً بنفس البريد ده، تأكد من كلمة السر',
+    'auth/too-many-requests': 'محاولات كتير غلط، حاول تاني بعد شوية',
+    'auth/popup-closed-by-user': 'تم إغلاق نافذة تسجيل الدخول',
+  };
+  return map[err.code] || 'حصل خطأ، حاول تاني';
+}
+
+function goStudentAuth(){
+  state.authError = '';
+  state.view = 'studentAuth';
+  render();
+}
+function goBackFromStudentAuth(){
+  state.view = 'student';
+  render();
+}
+
+async function studentAuthSubmit(){
+  const email = document.getElementById('authEmail').value.trim().toLowerCase();
+  const password = document.getElementById('authPassword').value;
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  if(!emailOk || password.length < 6){
+    state.authError = 'اكتب بريد إلكتروني صحيح وكلمة سر 6 أحرف على الأقل';
+    render();
+    return;
+  }
+  state.authError = '';
+  try{
+    await firebase.auth().signInWithEmailAndPassword(email, password);
+    state.view = 'student';
+    render();
+    showToast('تم تسجيل الدخول');
+  }catch(err){
+    if(err.code === 'auth/user-not-found'){
+      try{
+        await firebase.auth().createUserWithEmailAndPassword(email, password);
+        state.view = 'student';
+        render();
+        showToast('تم إنشاء حسابك بنجاح');
+      }catch(err2){
+        state.authError = translateAuthError(err2);
+        render();
+      }
+    }else{
+      state.authError = translateAuthError(err);
+      render();
+    }
+  }
+}
+
+function studentSignInWithGoogle(){
+  const provider = new firebase.auth.GoogleAuthProvider();
+  firebase.auth().signInWithRedirect(provider);
+}
+
+async function studentSignOut(){
+  try{ await firebase.auth().signOut(); }catch(e){}
+  showToast('تم تسجيل الخروج');
+}
+
+function renderStudentAuth(app){
+  app.innerHTML = `
+    <div class="login-wrap">
+      ${starSVG}
+      <h2>تسجيل الدخول</h2>
+      <div class="sub">سجّل دخولك عشان تحجز وتتابع مواعيدك بسهولة</div>
+      <div class="field">
+        <label for="authEmail">البريد الإلكتروني</label>
+        <input id="authEmail" type="email" placeholder="example@email.com" value="${escapeAttr(localStorage.getItem('meqraaMyEmail')||'')}">
+      </div>
+      <div class="field">
+        <label for="authPassword">كلمة السر</label>
+        <input id="authPassword" type="password" placeholder="6 أحرف على الأقل">
+      </div>
+      ${state.authError ? `<div class="err-msg" style="display:block;">${escapeHtml(state.authError)}</div>` : ''}
+      <div style="margin-top:14px; display:flex; gap:10px; flex-direction:column;">
+        <button class="btn btn-primary" onclick="studentAuthSubmit()">دخول / إنشاء حساب</button>
+        <button class="btn btn-outline" onclick="studentSignInWithGoogle()">تسجيل الدخول بحساب جوجل</button>
+        <button class="btn btn-outline" onclick="goBackFromStudentAuth()">رجوع</button>
+      </div>
+      <p style="font-size:0.78rem; color:var(--ink-soft); margin-top:14px;">
+        لو أول مرة تكتب فيها البريد ده، هيتعمل حساب جديد تلقائيًا بنفس البريد وكلمة السر اللي كتبتها.
+      </p>
+    </div>
+  `;
+}
+
 function goStudentChat(){
   stopMyBookingsTimer();
-  const savedEmail = (localStorage.getItem('meqraaMyEmail') || '').trim();
-  const savedName = (localStorage.getItem('meqraaMyName') || '').trim();
+  const savedEmail = state.authUser ? state.authUser.email : (localStorage.getItem('meqraaMyEmail') || '').trim();
+  const savedName = (state.authUser && state.authUser.displayName) || (localStorage.getItem('meqraaMyName') || '').trim();
   state.view = 'chat';
   state.chatEmail = savedEmail;
   state.chatName = savedName;
   state.chatMessages = null;
   render();
-  if(savedEmail){ subscribeStudentChat(savedEmail); }
+  if(savedEmail && savedName){ subscribeStudentChat(savedEmail); }
 }
 
 function goStudentChatBack(){
@@ -1094,7 +1206,7 @@ function goStudentChatBack(){
 
 function submitChatIdentity(){
   const name = document.getElementById('chatNameInput').value.trim();
-  const email = document.getElementById('chatEmailInput').value.trim().toLowerCase();
+  const email = state.authUser ? state.authUser.email : document.getElementById('chatEmailInput').value.trim().toLowerCase();
   const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   const err = document.getElementById('chatIdErr');
   if(!name || !emailOk){
@@ -1169,7 +1281,8 @@ function chatBubblesHtml(messages, viewerRole){
 }
 
 function renderStudentChat(app){
-  if(!state.chatEmail){
+  if(!state.chatEmail || !state.chatName){
+    const au = state.authUser;
     app.innerHTML = `
       <header class="app-head">
         ${starSVG}
@@ -1184,7 +1297,9 @@ function renderStudentChat(app){
         </div>
         <div class="field">
           <label for="chatEmailInput">بريدك الإلكتروني</label>
-          <input id="chatEmailInput" type="email" value="${escapeAttr(localStorage.getItem('meqraaMyEmail')||'')}" placeholder="example@email.com">
+          ${au
+            ? `<input id="chatEmailInput" type="email" value="${escapeAttr(au.email)}" disabled style="background:var(--sage-light);">`
+            : `<input id="chatEmailInput" type="email" value="${escapeAttr(localStorage.getItem('meqraaMyEmail')||'')}" placeholder="example@email.com">`}
         </div>
         <div class="err-msg" id="chatIdErr">من فضلك اكتب اسمك وبريد إلكتروني صحيح</div>
         <button class="btn btn-primary" onclick="submitChatIdentity()">بدء المحادثة</button>
@@ -1421,7 +1536,7 @@ function closeBookingOnBackdrop(e){
 
 async function confirmBooking(){
   const name = document.getElementById('stName').value.trim();
-  const email = document.getElementById('stEmail').value.trim().toLowerCase();
+  const email = state.authUser ? state.authUser.email : document.getElementById('stEmail').value.trim().toLowerCase();
   const phone = document.getElementById('stPhone').value.trim();
   const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   if(!name || !emailOk){
