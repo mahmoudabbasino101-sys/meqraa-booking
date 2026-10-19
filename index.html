@@ -507,4 +507,1401 @@ async function loadData(){
   try{
     firebase.initializeApp(firebaseConfig);
     db = firebase.firestore();
-    const do
+    const docRef = db.collection(FIRESTORE_COLLECTION).doc(FIRESTORE_DOC);
+    const snap = await docRef.get();
+    state.data = snap.exists ? snap.data() : defaultData();
+    if(!state.data.students){ state.data.students = []; }
+    if(!state.data.lessons){ state.data.lessons = []; }
+    if(!state.data.live){ state.data.live = { active:false, room:'' }; }
+    if(!snap.exists){ await docRef.set(state.data); }
+
+    // تحديث فوري على كل الأجهزة لحظة حدوث أي حجز أو تعديل
+    unsubscribeSnapshot = docRef.onSnapshot((doc)=>{
+      if(!doc.exists) return;
+      const newData = doc.data();
+      if(!newData.students){ newData.students = []; }
+      if(!newData.lessons){ newData.lessons = []; }
+      if(!newData.live){ newData.live = { active:false, room:'' }; }
+      notifyIfNewSlots(state.data, newData);
+      state.data = newData;
+      if(state.view === 'student' || state.view === 'admin'){ render(); }
+    }, (err)=>{ console.error(err); });
+  }catch(e){
+    console.error(e);
+    state.data = defaultData();
+    showToast('تعذر الاتصال بقاعدة البيانات، تأكد من إعداد Firebase وقواعد الحماية (Rules)');
+  }
+  state.loading = false;
+  if(window.location.hash === TEACHER_HASH){
+    state.view = state.data.pin ? 'adminLogin' : 'adminSetup';
+  }
+  render();
+}
+
+async function saveData(){
+  try{
+    await db.collection(FIRESTORE_COLLECTION).doc(FIRESTORE_DOC).set(state.data);
+  }catch(e){
+    console.error(e);
+    showToast('حدث خطأ أثناء الحفظ، تأكد من اتصالك بالإنترنت وحاول مرة أخرى');
+  }
+}
+
+let toastTimer = null;
+function showToast(msg){
+  clearTimeout(toastTimer);
+  let el = document.getElementById('toast');
+  if(el) el.remove();
+  el = document.createElement('div');
+  el.id = 'toast';
+  el.className = 'toast';
+  el.textContent = msg;
+  document.body.appendChild(el);
+  toastTimer = setTimeout(()=>{ el.remove(); }, 2600);
+}
+
+function fmtDate(dateStr){
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('ar-EG', { weekday:'long', day:'numeric', month:'long' });
+}
+function fmtTime(timeStr){
+  const [h,m] = timeStr.split(':').map(Number);
+  const d = new Date(); d.setHours(h,m,0,0);
+  return d.toLocaleTimeString('ar-EG', { hour:'numeric', minute:'2-digit', hour12:true });
+}
+function addMinutes(timeStr, mins){
+  const [h,m] = timeStr.split(':').map(Number);
+  const d = new Date(); d.setHours(h,m,0,0);
+  d.setMinutes(d.getMinutes()+Number(mins));
+  return d.toTimeString().slice(0,5);
+}
+function todayStr(){
+  const d = new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+
+function upcomingSlots(){
+  return state.data.slots
+    .filter(s => !isSlotPast(s))
+    .sort((a,b)=> (a.date+a.time).localeCompare(b.date+b.time));
+}
+
+function isSlotPast(s){
+  const end = new Date(s.date + 'T' + s.time + ':00').getTime() + SLOT_MINUTES * 60000;
+  return end <= Date.now();
+}
+
+function groupByDate(slots){
+  const groups = {};
+  slots.forEach(s=>{
+    if(!groups[s.date]) groups[s.date]=[];
+    groups[s.date].push(s);
+  });
+  return groups;
+}
+
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+
+/* ---------------- RENDER ---------------- */
+function render(){
+  const app = document.getElementById('app');
+  if(state.loading){
+    app.innerHTML = `<div class="loading">جارِ التحميل...</div>`;
+    return;
+  }
+  if(state.view === 'student') return renderStudent(app);
+  if(state.view === 'myBookings') return renderMyBookings(app);
+  if(state.view === 'chat') return renderStudentChat(app);
+  if(state.view === 'confirm') return renderConfirm(app);
+  if(state.view === 'adminLogin') return renderAdminLogin(app);
+  if(state.view === 'adminSetup') return renderAdminSetup(app);
+  if(state.view === 'adminChangePin') return renderAdminChangePin(app);
+  if(state.view === 'admin') return renderAdmin(app);
+  if(state.view === 'adminNotify') return renderAdminNotify(app);
+  if(state.view === 'adminStudents') return renderAdminStudents(app);
+  if(state.view === 'adminLessons') return renderAdminLessons(app);
+  if(state.view === 'adminLive') return renderAdminLive(app);
+  if(state.view === 'adminPastSlots') return renderAdminPastSlots(app);
+  if(state.view === 'adminChats') return renderAdminChatList(app);
+  if(state.view === 'adminChatThread') return renderAdminChatThread(app);
+}
+
+function seatMiniHtml(count){
+  const dots = Array.from({length:MAX_SEATS}).map((_,i)=>`<span class="dot${i<count?' filled':''}"></span>`).join('');
+  return `<div class="seat-mini"><div class="dots">${dots}</div><span class="count">${count}/${MAX_SEATS}</span></div>`;
+}
+
+function renderStudent(app){
+  const slots = upcomingSlots();
+  const groups = groupByDate(slots);
+  const dates = Object.keys(groups);
+
+  let boardHtml = '';
+  if(dates.length === 0){
+    boardHtml = `
+      <div class="empty-state">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+        <div>لا توجد مواعيد متاحة حاليًا</div>
+        <div style="font-size:0.85rem; margin-top:4px;">تابعونا، سيتم إضافة مواعيد جديدة قريبًا بإذن الله</div>
+      </div>`;
+  }else{
+    boardHtml = dates.map(date=>{
+      const rows = groups[date].map(s=>{
+        const count = (s.bookings||[]).length;
+        const isFull = count >= MAX_SEATS;
+        return `
+        <div class="slot-row">
+          <div class="slot-main">
+            <div class="slot-time">${fmtTime(s.time)} — ${fmtTime(addMinutes(s.time, 60))}</div>
+            ${s.note ? `<div class="slot-note">${escapeHtml(s.note)}</div>` : ''}
+            ${seatMiniHtml(count)}
+          </div>
+          ${isFull
+            ? `<span class="tag tag-full">مكتمل</span>`
+            : `<button class="btn btn-primary btn-sm" onclick="openBooking('${s.id}')">احجز</button>`}
+        </div>
+      `;}).join('');
+      return `<div class="day-group"><div class="day-label">${fmtDate(date)}</div>${rows}</div>`;
+    }).join('');
+  }
+
+  const lessons = [...(state.data.lessons || [])].sort((a,b)=> (b.addedAt||'').localeCompare(a.addedAt||''));
+  const lessonsHtml = lessons.length ? `
+    <h2 class="section-title">الدروس والملفات</h2>
+    <div class="board">
+      ${lessons.map(l=>`
+        <div class="slot-row">
+          <div class="slot-main">
+            <div class="slot-time">${escapeHtml(l.title)}</div>
+          </div>
+          <a class="btn btn-primary btn-sm" href="${escapeAttr(l.url)}" target="_blank" rel="noopener">فتح الملف</a>
+        </div>
+      `).join('')}
+    </div>
+  ` : '';
+
+  const live = state.data.live || {};
+  const liveHtml = live.active ? `
+    <div class="live-banner">
+      <div class="live-banner-head">🔴 بث مباشر الآن</div>
+      <div class="live-frame-wrap">
+        <iframe src="https://meet.jit.si/${encodeURIComponent(live.room)}#config.prejoinPageEnabled=false"
+          allow="camera; microphone; fullscreen; display-capture; autoplay" allowfullscreen></iframe>
+      </div>
+    </div>
+  ` : '';
+
+  app.innerHTML = `
+    <header class="app-head">
+      ${starSVG}
+      <h1>${escapeHtml(state.data.info.name || 'المقرأة')}</h1>
+      ${state.data.info.desc ? `<p class="desc">${escapeHtml(state.data.info.desc)}</p>` : ''}
+      <div class="divider"></div>
+      <div class="header-actions">
+        <button class="btn btn-outline btn-sm my-bookings-btn" onclick="goMyBookings()">مواعيدي</button>
+        <button class="btn btn-outline btn-sm my-bookings-btn" onclick="goStudentChat()">راسل المعلم</button>
+        ${notifButtonHtml()}
+      </div>
+    </header>
+    ${liveHtml}
+    <div class="board">${boardHtml}</div>
+    ${lessonsHtml}
+    ${bookingModalHtml()}
+  `;
+}
+
+function myBookingRowHtml(item, withCountdown){
+  return `
+    <div class="slot-row">
+      <div class="slot-main">
+        <div class="slot-time">${fmtDate(item.slot.date)} — ${fmtTime(item.slot.time)}</div>
+        ${item.slot.note ? `<div class="slot-note">${escapeHtml(item.slot.note)}</div>` : ''}
+        ${withCountdown ? `<button class="btn btn-outline btn-sm" style="margin-top:8px;" onclick="cancelMyBooking('${item.slot.id}','${item.booking.id}')">إلغاء الحجز</button>` : ''}
+      </div>
+      ${withCountdown
+        ? `<span class="tag tag-avail" id="cd-${item.booking.id}" style="white-space:nowrap;">...</span>`
+        : `<span class="tag tag-full">تم الحضور</span>`}
+    </div>`;
+}
+
+async function cancelMyBooking(slotId, bookingId){
+  if(!confirm('متأكد إنك عايز تلغي الحجز ده؟')) return;
+  const s = state.data.slots.find(x=>x.id===slotId);
+  if(s){ s.bookings = (s.bookings||[]).filter(b=>b.id!==bookingId); }
+  await saveData();
+  showToast('تم إلغاء الحجز');
+  searchMyBookings(state.myBookingsEmail);
+}
+
+function renderMyBookings(app){
+  const results = state.myBookingsResults;
+  let resultsHtml = '';
+  if(results){
+    if(!results.upcoming.length && !results.past.length){
+      resultsHtml = `<div class="empty-state"><div>لم يتم العثور على أي حجوزات بهذا البريد الإلكتروني</div></div>`;
+    }else{
+      if(results.upcoming.length){
+        resultsHtml += `<h3 class="section-title">المواعيد القادمة</h3><div class="board">${results.upcoming.map(i=>myBookingRowHtml(i,true)).join('')}</div>`;
+      }
+      if(results.past.length){
+        resultsHtml += `<h3 class="section-title">المواعيد السابقة</h3><div class="board">${results.past.map(i=>myBookingRowHtml(i,false)).join('')}</div>`;
+      }
+    }
+  }
+
+  app.innerHTML = `
+    <header class="app-head">
+      ${starSVG}
+      <h1>مواعيدي</h1>
+      <div class="divider"></div>
+      <button class="btn btn-outline btn-sm" onclick="goStudentFromMyBookings()">رجوع للمواعيد</button>
+    </header>
+    <div class="admin-card" style="margin-bottom:20px;">
+      <div class="field">
+        <label for="myEmailInput">أدخل بريدك الإلكتروني</label>
+        <input id="myEmailInput" type="email" placeholder="example@email.com" value="${escapeAttr(state.myBookingsEmail||'')}">
+      </div>
+      <button class="btn btn-primary" onclick="searchMyBookings()">بحث عن حجوزاتي</button>
+    </div>
+    ${resultsHtml}
+  `;
+  const input = document.getElementById('myEmailInput');
+  if(input){
+    input.addEventListener('keydown', (e)=>{ if(e.key === 'Enter') searchMyBookings(); });
+  }
+  if(results) startMyBookingsTimer();
+}
+
+function bookingModalHtml(){
+  if(!state.selectedSlot) return '';
+  const s = state.data.slots.find(x=>x.id===state.selectedSlot);
+  if(!s) return '';
+  const count = (s.bookings||[]).length;
+  return `
+  <div class="modal-backdrop" onclick="closeBookingOnBackdrop(event)">
+    <div class="modal">
+      <h3>تأكيد الحجز</h3>
+      <div class="sub">${fmtDate(s.date)} — ${fmtTime(s.time)} (متبقي ${MAX_SEATS-count} من ${MAX_SEATS})</div>
+      <div class="field">
+        <label for="stName">الاسم</label>
+        <input id="stName" type="text" placeholder="اكتب اسمك">
+      </div>
+      <div class="field">
+        <label for="stEmail">البريد الإلكتروني</label>
+        <input id="stEmail" type="email" placeholder="example@email.com" value="${escapeAttr(localStorage.getItem('meqraaMyEmail')||'')}">
+      </div>
+      <div class="field">
+        <label for="stPhone">رقم الهاتف (اختياري)</label>
+        <input id="stPhone" type="tel" placeholder="01xxxxxxxxx">
+      </div>
+      <div class="err-msg" id="bookErr">من فضلك اكتب اسمك وبريد إلكتروني صحيح</div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeBooking()">إلغاء</button>
+        <button class="btn btn-primary" onclick="confirmBooking()">تأكيد الحجز</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderConfirm(app){
+  const b = state.lastBooking;
+  app.innerHTML = `
+    <div class="confirm-screen">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 6L9 17l-5-5"/></svg>
+      <h2>تم الحجز بنجاح</h2>
+      <p>${b ? fmtDate(b.date)+' — '+fmtTime(b.time) : ''}</p>
+      <p style="margin-top:16px;">في انتظارك يا ${escapeHtml(b ? b.name : '')}</p>
+      <div style="margin-top:28px;">
+        <button class="btn btn-outline" onclick="backToStudent()">رجوع لقائمة المواعيد</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderAdminLogin(app){
+  app.innerHTML = `
+    <div class="login-wrap">
+      ${starSVG}
+      <h2>دخول المعلم</h2>
+      <div class="sub">أدخل رمز الدخول لعرض ولوحة التحكم</div>
+      <input class="pin-input" id="pinField" type="password" inputmode="numeric" maxlength="8" placeholder="••••">
+      ${state.pinAttemptError ? '<div class="err-msg" style="display:block; text-align:center;">رمز غير صحيح</div>' : ''}
+      <div style="margin-top:18px; display:flex; gap:10px; flex-direction:column;">
+        <button class="btn btn-primary" onclick="tryAdminLogin()">دخول</button>
+        <button class="btn btn-outline" onclick="backToStudent()">رجوع</button>
+      </div>
+    </div>
+  `;
+  setTimeout(()=>{ const f=document.getElementById('pinField'); if(f) f.focus(); },0);
+}
+
+function renderAdminSetup(app){
+  app.innerHTML = `
+    <div class="login-wrap">
+      ${starSVG}
+      <h2>إعداد لوحة المعلم</h2>
+      <div class="sub">أول مرة تدخل؟ أنشئ رمز دخول خاص بك لحماية لوحة التحكم</div>
+      <input class="pin-input" id="pinField1" type="password" inputmode="numeric" maxlength="8" placeholder="رمز جديد">
+      <div style="height:10px;"></div>
+      <input class="pin-input" id="pinField2" type="password" inputmode="numeric" maxlength="8" placeholder="تأكيد الرمز">
+      <div class="err-msg" id="setupErr">تأكد أن الرمزين متطابقين ولا يقل عن 4 أرقام</div>
+      <div style="margin-top:18px; display:flex; gap:10px; flex-direction:column;">
+        <button class="btn btn-primary" onclick="createAdminPin()">إنشاء وتسجيل الدخول</button>
+        <button class="btn btn-outline" onclick="backToStudent()">رجوع</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderAdminChangePin(app){
+  app.innerHTML = `
+    <div class="login-wrap">
+      ${starSVG}
+      <h2>تغيير كلمة السر</h2>
+      <div class="sub">أدخل الرمز الحالي ثم الرمز الجديد</div>
+      <input class="pin-input" id="curPin" type="password" inputmode="numeric" maxlength="8" placeholder="الرمز الحالي">
+      <div style="height:10px;"></div>
+      <input class="pin-input" id="newPin1" type="password" inputmode="numeric" maxlength="8" placeholder="الرمز الجديد">
+      <div style="height:10px;"></div>
+      <input class="pin-input" id="newPin2" type="password" inputmode="numeric" maxlength="8" placeholder="تأكيد الرمز الجديد">
+      <div class="err-msg" id="changePinErr">تأكد من الرمز الحالي، وأن الرمز الجديد متطابق ولا يقل عن 4 أرقام</div>
+      <div style="margin-top:18px; display:flex; gap:10px; flex-direction:column;">
+        <button class="btn btn-primary" onclick="saveNewPin()">حفظ الرمز الجديد</button>
+        <button class="btn btn-outline" onclick="backToAdmin()">رجوع</button>
+      </div>
+    </div>
+  `;
+}
+
+function adminSlotRowHtml(s){
+  const bookings = s.bookings || [];
+  return `
+    <div class="admin-slot">
+      <div style="flex:1;">
+        <div class="slot-time">${fmtDate(s.date)} — ${fmtTime(s.time)} إلى ${fmtTime(addMinutes(s.time, 60))}</div>
+        ${s.note ? `<div class="meta">${escapeHtml(s.note)}</div>` : ''}
+        ${seatMiniHtml(bookings.length)}
+        ${bookings.length
+          ? `<div class="roster-list">${bookings.map(b=>`
+              <div class="roster-item">
+                <span class="roster-info"><span class="name">${escapeHtml(b.name)}</span>${b.email ? ' — '+escapeHtml(b.email) : ''}${b.phone ? ' — '+escapeHtml(b.phone) : ''}</span>
+                <span class="roster-actions">
+                  ${b.phone ? `<a class="call-btn" href="tel:${escapeAttr(b.phone)}" title="اتصال بـ ${escapeAttr(b.name)}">📞</a>` : ''}
+                  ${b.email ? `<button class="btn btn-outline btn-sm" onclick="openAdminChatThread('${escapeAttr(b.email)}','${escapeAttr(b.name)}')">💬 رسالة</button>` : ''}
+                  <button class="btn btn-outline btn-sm" onclick="cancelBooking('${s.id}','${b.id}')">إلغاء</button>
+                </span>
+              </div>`).join('')}</div>`
+          : `<div class="meta"><span class="tag tag-avail">متاح بالكامل</span></div>`}
+      </div>
+      <div class="actions">
+        <button class="btn btn-danger btn-sm" onclick="deleteSlot('${s.id}')">حذف الميعاد بالكامل</button>
+      </div>
+    </div>`;
+}
+
+function toggleAdminMenu(){
+  state.adminMenuOpen = !state.adminMenuOpen;
+  render();
+}
+function adminMenuGo(fnName){
+  state.adminMenuOpen = false;
+  window[fnName]();
+}
+
+function renderAdmin(app){
+  const slots = [...state.data.slots].sort((a,b)=> (a.date+a.time).localeCompare(b.date+b.time));
+  const upcoming = slots.filter(s=>!isSlotPast(s));
+  const pastCount = slots.length - upcoming.length;
+
+  app.innerHTML = `
+    <div class="admin-topbar">
+      <h2>لوحة المعلم</h2>
+      <div class="admin-menu-wrap">
+        <button class="btn btn-outline btn-sm" onclick="toggleAdminMenu()">
+          ☰ القائمة${state.chatUnreadTotal ? `<span class="chat-badge">${state.chatUnreadTotal}</span>` : ''}
+        </button>
+        <div class="admin-menu-dropdown ${state.adminMenuOpen ? 'open' : ''}">
+          ${('Notification' in window) && Notification.permission === 'default'
+            ? `<button class="admin-menu-item" onclick="adminMenuGo('requestNotifPermission')">🔔 تفعيل تنبيهات الرسائل الجديدة</button>`
+            : ''}
+          <button class="admin-menu-item" onclick="adminMenuGo('goAdminChats')">الرسائل${state.chatUnreadTotal ? `<span class="chat-badge">${state.chatUnreadTotal}</span>` : ''}</button>
+          <button class="admin-menu-item" onclick="adminMenuGo('goAdminStudents')">طلاب المقرأة</button>
+          <button class="admin-menu-item" onclick="adminMenuGo('goAdminLessons')">الدروس والملفات</button>
+          <button class="admin-menu-item" onclick="adminMenuGo('goAdminLive')">${state.data.live && state.data.live.active ? '🔴 البث شغال الآن' : 'البث المباشر'}</button>
+          <button class="admin-menu-item" onclick="state.adminMenuOpen=false; goAdminNotify();">إشعار واتساب للطلاب</button>
+          <button class="admin-menu-item" onclick="adminMenuGo('goAdminPastSlots')">مواعيد سابقة${pastCount ? `<span class="chat-badge">${pastCount}</span>` : ''}</button>
+          <button class="admin-menu-item" onclick="adminMenuGo('goChangePin')">تغيير كلمة السر</button>
+          <button class="admin-menu-item" onclick="adminMenuGo('adminLogout')">خروج</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-title">بيانات المقرأة</div>
+    <div class="admin-card">
+      <div class="field">
+        <label>اسم المقرأة</label>
+        <input id="infoName" type="text" value="${escapeAttr(state.data.info.name || '')}">
+      </div>
+      <div class="field" style="margin-bottom:0;">
+        <label>وصف مختصر (يظهر للطلاب)</label>
+        <input id="infoDesc" type="text" value="${escapeAttr(state.data.info.desc || '')}">
+      </div>
+      <button class="btn btn-secondary btn-sm" style="margin-top:12px;" onclick="saveInfo()">حفظ البيانات</button>
+    </div>
+
+    <div class="section-title">إضافة ميعاد جديد (المدة ساعة واحدة، وبحد أقصى ${MAX_SEATS} طلاب)</div>
+    <div class="admin-card">
+      <div class="row-2">
+        <div class="field">
+          <label>التاريخ</label>
+          <input id="newDate" type="date" min="${todayStr()}">
+        </div>
+        <div class="field">
+          <label>وقت البداية</label>
+          <input id="newTime" type="time">
+        </div>
+      </div>
+      <div class="field">
+        <label>ملاحظة (اختياري)</label>
+        <input id="newNote" type="text" placeholder="حفظ / مراجعة">
+      </div>
+      <div class="err-msg" id="addErr">من فضلك اختر التاريخ والوقت</div>
+      <button class="btn btn-primary" onclick="addSlot()">إضافة الميعاد</button>
+    </div>
+
+    <div class="section-title">المواعيد القادمة (${upcoming.length})</div>
+    <div class="admin-card">
+      ${upcoming.length ? upcoming.map(adminSlotRowHtml).join('') : '<div class="meta">لا توجد مواعيد قادمة، أضف ميعادًا من الأعلى</div>'}
+    </div>
+  `;
+}
+
+function goAdminPastSlots(){
+  state.view = 'adminPastSlots';
+  render();
+}
+function goBackFromAdminPastSlots(){
+  state.view = 'admin';
+  render();
+}
+function renderAdminPastSlots(app){
+  const slots = [...state.data.slots].sort((a,b)=> (b.date+b.time).localeCompare(a.date+a.time));
+  const past = slots.filter(s=>isSlotPast(s));
+  app.innerHTML = `
+    <div class="admin-topbar">
+      <h2>مواعيد سابقة</h2>
+      <button class="btn btn-outline btn-sm" onclick="goBackFromAdminPastSlots()">رجوع للوحة المعلم</button>
+    </div>
+    <div class="admin-card">
+      ${past.length ? past.map(adminSlotRowHtml).join('') : '<div class="meta">لا توجد مواعيد سابقة بعد</div>'}
+    </div>
+  `;
+}
+
+function escapeHtml(str){
+  const d = document.createElement('div');
+  d.textContent = str == null ? '' : String(str);
+  return d.innerHTML;
+}
+function escapeAttr(str){
+  return escapeHtml(str).replace(/"/g,'&quot;');
+}
+
+/* ---------------- ACTIONS ---------------- */
+function goAdminEntry(){
+  state.view = state.data.pin ? 'adminLogin' : 'adminSetup';
+  state.pinAttemptError = false;
+  render();
+}
+function clearTeacherHash(){
+  if(window.location.hash === TEACHER_HASH){
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+  }
+}
+function backToStudent(){
+  stopAdminChatList();
+  stopChatThread();
+  state.adminMenuOpen = false;
+  state.view = 'student';
+  state.selectedSlot = null;
+  clearTeacherHash();
+  render();
+  refreshFromServer();
+}
+function adminLogout(){
+  stopAdminChatList();
+  stopChatThread();
+  state.adminMenuOpen = false;
+  state.view = 'student';
+  clearTeacherHash();
+  render();
+}
+
+/* ---------------- MY BOOKINGS (email lookup + countdown) ---------------- */
+let myBookingsTimer = null;
+
+function goMyBookings(){
+  stopMyBookingsTimer();
+  state.view = 'myBookings';
+  state.myBookingsEmail = (localStorage.getItem('meqraaMyEmail') || '').trim();
+  state.myBookingsResults = null;
+  render();
+}
+
+function goStudentFromMyBookings(){
+  stopMyBookingsTimer();
+  backToStudent();
+}
+
+function searchMyBookings(directEmail){
+  const raw = directEmail || document.getElementById('myEmailInput').value.trim().toLowerCase();
+  if(!raw) return;
+  state.myBookingsEmail = raw;
+  try{ localStorage.setItem('meqraaMyEmail', raw); }catch(e){}
+
+  const now = Date.now();
+  const upcoming = [];
+  const past = [];
+  (state.data.slots || []).forEach(s=>{
+    (s.bookings || []).forEach(b=>{
+      if((b.email || '').toLowerCase() === raw){
+        const start = new Date(s.date + 'T' + s.time + ':00').getTime();
+        const end = start + SLOT_MINUTES * 60000;
+        const item = { slot: s, booking: b, start, end };
+        if(end > now) upcoming.push(item); else past.push(item);
+      }
+    });
+  });
+  upcoming.sort((a,b)=>a.start - b.start);
+  past.sort((a,b)=>b.start - a.start);
+  state.myBookingsResults = { upcoming, past };
+  render();
+}
+
+function formatCountdown(ms){
+  const totalSec = Math.max(0, Math.floor(ms/1000));
+  const days = Math.floor(totalSec/86400);
+  const hours = Math.floor((totalSec % 86400)/3600);
+  const mins = Math.floor((totalSec % 3600)/60);
+  const secs = totalSec % 60;
+  const parts = [];
+  if(days) parts.push(days+' يوم');
+  if(hours || days) parts.push(hours+' ساعة');
+  if(mins || hours || days) parts.push(mins+' دقيقة');
+  parts.push(secs+' ثانية');
+  return 'متبقي ' + parts.join(' و ');
+}
+
+function updateMyBookingsCountdowns(){
+  if(!state.myBookingsResults) return;
+  const now = Date.now();
+  let anyStateChange = false;
+  state.myBookingsResults.upcoming.forEach(item=>{
+    const el = document.getElementById('cd-'+item.booking.id);
+    if(!el) return;
+    if(now >= item.end){
+      anyStateChange = true;
+    }else if(now >= item.start){
+      el.textContent = 'الموعد جارٍ الآن';
+      el.className = 'tag tag-full';
+    }else{
+      el.textContent = formatCountdown(item.start - now);
+    }
+  });
+  if(anyStateChange){
+    // موعد انتهى بينما الصفحة مفتوحة - أعد الحساب لنقله لقسم "السابقة"
+    searchMyBookings();
+  }
+}
+
+function startMyBookingsTimer(){
+  stopMyBookingsTimer();
+  updateMyBookingsCountdowns();
+  myBookingsTimer = setInterval(updateMyBookingsCountdowns, 1000);
+}
+function stopMyBookingsTimer(){
+  if(myBookingsTimer){ clearInterval(myBookingsTimer); myBookingsTimer = null; }
+}
+
+/* ---------------- CHAT (محادثة ثنائية بين كل طالب والمعلم) ---------------- */
+let chatListUnsub = null;
+let chatThreadUnsub = null;
+
+function fmtMsgTime(iso){
+  try{
+    return new Date(iso).toLocaleTimeString('ar-EG', { hour:'2-digit', minute:'2-digit' });
+  }catch(e){ return ''; }
+}
+
+function stopChatThread(){
+  if(chatThreadUnsub){ chatThreadUnsub(); chatThreadUnsub = null; }
+}
+function stopAdminChatList(){
+  if(chatListUnsub){ chatListUnsub(); chatListUnsub = null; }
+  state.chatList = [];
+  state.chatUnreadTotal = 0;
+}
+
+function goStudentChat(){
+  stopMyBookingsTimer();
+  const savedEmail = (localStorage.getItem('meqraaMyEmail') || '').trim();
+  const savedName = (localStorage.getItem('meqraaMyName') || '').trim();
+  state.view = 'chat';
+  state.chatEmail = savedEmail;
+  state.chatName = savedName;
+  state.chatMessages = null;
+  render();
+  if(savedEmail){ subscribeStudentChat(savedEmail); }
+}
+
+function goStudentChatBack(){
+  stopChatThread();
+  backToStudent();
+}
+
+function submitChatIdentity(){
+  const name = document.getElementById('chatNameInput').value.trim();
+  const email = document.getElementById('chatEmailInput').value.trim().toLowerCase();
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  const err = document.getElementById('chatIdErr');
+  if(!name || !emailOk){
+    if(err) err.style.display = 'block';
+    return;
+  }
+  state.chatName = name;
+  state.chatEmail = email;
+  try{
+    localStorage.setItem('meqraaMyEmail', email);
+    localStorage.setItem('meqraaMyName', name);
+  }catch(e){}
+  render();
+  subscribeStudentChat(email);
+}
+
+function subscribeStudentChat(email){
+  stopChatThread();
+  const docRef = db.collection(CHATS_COLLECTION).doc(email);
+  chatThreadUnsub = docRef.onSnapshot((doc)=>{
+    const d = doc.exists ? doc.data() : {};
+    state.chatMessages = d.messages || [];
+    if(d.unreadByStudent){
+      docRef.set({ unreadByStudent: false }, { merge:true }).catch(()=>{});
+    }
+    if(state.view === 'chat') render();
+  }, ()=>{ state.chatMessages = []; render(); });
+}
+
+function sendStudentMessage(){
+  const input = document.getElementById('chatInputStudent');
+  const text = input.value.trim();
+  if(!text || !state.chatEmail) return;
+  const msg = { id: uid(), from:'student', text, at: new Date().toISOString() };
+  db.collection(CHATS_COLLECTION).doc(state.chatEmail).set({
+    studentName: state.chatName,
+    studentEmail: state.chatEmail,
+    messages: firebase.firestore.FieldValue.arrayUnion(msg),
+    lastMessageAt: msg.at,
+    lastMessageFrom: 'student',
+    lastMessageText: text,
+    unreadByTeacher: true,
+    unreadByStudent: false
+  }, { merge:true }).catch(()=>{ showToast('تعذر إرسال الرسالة، حاول تاني'); });
+  input.value = '';
+}
+
+function deleteStudentMessage(msgId){
+  if(!confirm('حذف الرسالة دي؟')) return;
+  const filtered = (state.chatMessages || []).filter(m=>m.id !== msgId);
+  const last = filtered[filtered.length - 1];
+  db.collection(CHATS_COLLECTION).doc(state.chatEmail).set({
+    messages: filtered,
+    lastMessageAt: last ? last.at : new Date().toISOString(),
+    lastMessageFrom: last ? last.from : null,
+    lastMessageText: last ? last.text : ''
+  }, { merge:true }).catch(()=>{ showToast('تعذر حذف الرسالة'); });
+}
+
+function chatBubblesHtml(messages, viewerRole){
+  if(!messages || !messages.length){
+    return `<div class="chat-empty">مفيش رسائل لسه، ابدأ المحادثة 👋</div>`;
+  }
+  const deleteFn = viewerRole === 'teacher' ? 'deleteTeacherMessage' : 'deleteStudentMessage';
+  return messages.map(m=>`
+    <div class="msg-bubble ${m.from === 'teacher' ? 'msg-teacher' : 'msg-student'}">
+      ${m.from === viewerRole ? `<button class="msg-delete-btn" onclick="${deleteFn}('${m.id}')" title="حذف الرسالة">×</button>` : ''}
+      ${escapeHtml(m.text)}
+      <span class="msg-time">${fmtMsgTime(m.at)}</span>
+    </div>
+  `).join('');
+}
+
+function renderStudentChat(app){
+  if(!state.chatEmail){
+    app.innerHTML = `
+      <header class="app-head">
+        ${starSVG}
+        <h1>راسل المعلم</h1>
+        <div class="divider"></div>
+        <button class="btn btn-outline btn-sm" onclick="goStudentChatBack()">رجوع للمواعيد</button>
+      </header>
+      <div class="admin-card">
+        <div class="field">
+          <label for="chatNameInput">اسمك</label>
+          <input id="chatNameInput" type="text" value="${escapeAttr(localStorage.getItem('meqraaMyName')||'')}" placeholder="اكتب اسمك">
+        </div>
+        <div class="field">
+          <label for="chatEmailInput">بريدك الإلكتروني</label>
+          <input id="chatEmailInput" type="email" value="${escapeAttr(localStorage.getItem('meqraaMyEmail')||'')}" placeholder="example@email.com">
+        </div>
+        <div class="err-msg" id="chatIdErr">من فضلك اكتب اسمك وبريد إلكتروني صحيح</div>
+        <button class="btn btn-primary" onclick="submitChatIdentity()">بدء المحادثة</button>
+      </div>
+    `;
+    return;
+  }
+
+  app.innerHTML = `
+    <header class="app-head">
+      ${starSVG}
+      <h1>راسل المعلم</h1>
+      <div class="divider"></div>
+      <button class="btn btn-outline btn-sm" onclick="goStudentChatBack()">رجوع للمواعيد</button>
+    </header>
+    <div class="chat-wrap">
+      <div class="chat-messages" id="chatMessagesBox">
+        ${state.chatMessages === null ? '<div class="chat-empty">جارٍ التحميل...</div>' : chatBubblesHtml(state.chatMessages, 'student')}
+      </div>
+      <div class="chat-input-row">
+        <input id="chatInputStudent" type="text" placeholder="اكتب رسالتك...">
+        <button class="btn btn-primary btn-sm" onclick="sendStudentMessage()">إرسال</button>
+      </div>
+    </div>
+  `;
+  const box = document.getElementById('chatMessagesBox');
+  if(box) box.scrollTop = box.scrollHeight;
+  const input = document.getElementById('chatInputStudent');
+  if(input){
+    input.addEventListener('keydown', (e)=>{ if(e.key === 'Enter') sendStudentMessage(); });
+  }
+}
+
+/* ---------------- CHAT: جانب المعلم ---------------- */
+let knownChatMessageAt = new Map();
+let isFirstChatSnapshot = true;
+
+function startAdminChatList(){
+  if(chatListUnsub) return;
+  knownChatMessageAt = new Map();
+  isFirstChatSnapshot = true;
+  chatListUnsub = db.collection(CHATS_COLLECTION).orderBy('lastMessageAt', 'desc').onSnapshot((snap)=>{
+    state.chatList = snap.docs.map(d=>({ id: d.id, ...d.data() }));
+    state.chatUnreadTotal = state.chatList.filter(c=>c.unreadByTeacher).length;
+
+    const canNotify = !isFirstChatSnapshot && ('Notification' in window) && Notification.permission === 'granted';
+    state.chatList.forEach((c)=>{
+      const prevAt = knownChatMessageAt.get(c.id);
+      if(canNotify && c.unreadByTeacher && c.lastMessageFrom === 'student' && c.lastMessageAt && c.lastMessageAt !== prevAt){
+        try{
+          new Notification('رسالة جديدة من ' + (c.studentName || c.id), {
+            body: c.lastMessageText || '',
+            icon: 'icon-192.png'
+          });
+        }catch(e){}
+      }
+      knownChatMessageAt.set(c.id, c.lastMessageAt);
+    });
+    isFirstChatSnapshot = false;
+
+    if(state.view === 'admin' || state.view === 'adminChats') render();
+  }, ()=>{});
+}
+
+function goAdminChats(){
+  state.view = 'adminChats';
+  render();
+}
+function goBackFromAdminChats(){
+  state.view = 'admin';
+  render();
+}
+
+function openAdminChatThread(email, fallbackName){
+  stopChatThread();
+  state.activeChatEmail = email;
+  const known = state.chatList.find(c=>c.id === email);
+  state.activeChatName = (known && known.studentName) || fallbackName || email;
+  state.activeChatMessages = (known && known.messages) || [];
+  state.view = 'adminChatThread';
+  render();
+
+  const docRef = db.collection(CHATS_COLLECTION).doc(email);
+  chatThreadUnsub = docRef.onSnapshot((doc)=>{
+    const d = doc.exists ? doc.data() : {};
+    state.activeChatMessages = d.messages || [];
+    state.activeChatName = d.studentName || fallbackName || email;
+    if(d.unreadByTeacher){
+      docRef.set({ unreadByTeacher: false }, { merge:true }).catch(()=>{});
+    }
+    if(state.view === 'adminChatThread') render();
+  }, ()=>{});
+}
+
+function goBackFromChatThread(){
+  stopChatThread();
+  state.view = 'adminChats';
+  render();
+}
+
+async function deleteWholeChat(email){
+  if(!confirm('هل أنت متأكد من حذف المحادثة بالكامل مع هذا الطالب؟ لا يمكن التراجع.')) return;
+  try{
+    await db.collection(CHATS_COLLECTION).doc(email).delete();
+    showToast('تم حذف المحادثة');
+  }catch(e){
+    showToast('تعذر حذف المحادثة، حاول تاني');
+    return;
+  }
+  if(state.activeChatEmail === email){
+    goBackFromChatThread();
+  }
+}
+
+function sendTeacherMessage(){
+  const input = document.getElementById('chatInputTeacher');
+  const text = input.value.trim();
+  if(!text || !state.activeChatEmail) return;
+  const msg = { id: uid(), from:'teacher', text, at: new Date().toISOString() };
+  db.collection(CHATS_COLLECTION).doc(state.activeChatEmail).set({
+    messages: firebase.firestore.FieldValue.arrayUnion(msg),
+    lastMessageAt: msg.at,
+    lastMessageFrom: 'teacher',
+    lastMessageText: text,
+    unreadByStudent: true,
+    unreadByTeacher: false
+  }, { merge:true }).catch(()=>{ showToast('تعذر إرسال الرسالة، حاول تاني'); });
+  input.value = '';
+}
+
+function deleteTeacherMessage(msgId){
+  if(!confirm('حذف الرسالة دي؟')) return;
+  const filtered = (state.activeChatMessages || []).filter(m=>m.id !== msgId);
+  const last = filtered[filtered.length - 1];
+  db.collection(CHATS_COLLECTION).doc(state.activeChatEmail).set({
+    messages: filtered,
+    lastMessageAt: last ? last.at : new Date().toISOString(),
+    lastMessageFrom: last ? last.from : null,
+    lastMessageText: last ? last.text : ''
+  }, { merge:true }).catch(()=>{ showToast('تعذر حذف الرسالة'); });
+}
+
+function renderAdminChatList(app){
+  const list = state.chatList || [];
+  const rows = list.length ? list.map(c=>`
+    <div class="chat-list-item" onclick="openAdminChatThread('${escapeAttr(c.id)}')">
+      <div style="flex:1; min-width:0;">
+        <div class="cl-name">${escapeHtml(c.studentName || c.id)}</div>
+        <div class="cl-preview">${escapeHtml((c.lastMessageFrom === 'teacher' ? 'أنت: ' : '') + (c.lastMessageText || ''))}</div>
+      </div>
+      ${c.unreadByTeacher ? '<span class="unread-dot"></span>' : ''}
+    </div>
+  `).join('') : `<div class="empty-state"><div>لا توجد رسائل بعد</div></div>`;
+
+  app.innerHTML = `
+    <div class="admin-topbar">
+      <h2>الرسائل</h2>
+      <button class="btn btn-outline btn-sm" onclick="goBackFromAdminChats()">رجوع للوحة المعلم</button>
+    </div>
+    ${rows}
+  `;
+}
+
+function renderAdminChatThread(app){
+  app.innerHTML = `
+    <div class="admin-topbar">
+      <h2>${escapeHtml(state.activeChatName)}</h2>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn btn-danger btn-sm" onclick="deleteWholeChat('${escapeAttr(state.activeChatEmail)}')">حذف المحادثة بالكامل</button>
+        <button class="btn btn-outline btn-sm" onclick="goBackFromChatThread()">رجوع للرسائل</button>
+      </div>
+    </div>
+    <div class="chat-wrap">
+      <div class="chat-messages" id="chatMessagesBoxAdmin">
+        ${chatBubblesHtml(state.activeChatMessages, 'teacher')}
+      </div>
+      <div class="chat-input-row">
+        <input id="chatInputTeacher" type="text" placeholder="اكتب ردك...">
+        <button class="btn btn-primary btn-sm" onclick="sendTeacherMessage()">إرسال</button>
+      </div>
+    </div>
+  `;
+  const box = document.getElementById('chatMessagesBoxAdmin');
+  if(box) box.scrollTop = box.scrollHeight;
+  const input = document.getElementById('chatInputTeacher');
+  if(input){
+    input.addEventListener('keydown', (e)=>{ if(e.key === 'Enter') sendTeacherMessage(); });
+  }
+}
+
+async function createAdminPin(){
+  const p1 = document.getElementById('pinField1').value.trim();
+  const p2 = document.getElementById('pinField2').value.trim();
+  const err = document.getElementById('setupErr');
+  if(p1.length < 4 || p1 !== p2){
+    err.style.display = 'block';
+    return;
+  }
+  state.data.pin = p1;
+  await saveData();
+  state.view = 'admin';
+  render();
+  startAdminChatList();
+  showToast('تم إنشاء رمز الدخول بنجاح');
+}
+
+function goChangePin(){
+  state.view = 'adminChangePin';
+  render();
+}
+function backToAdmin(){
+  state.view = 'admin';
+  render();
+}
+async function saveNewPin(){
+  const cur = document.getElementById('curPin').value.trim();
+  const p1 = document.getElementById('newPin1').value.trim();
+  const p2 = document.getElementById('newPin2').value.trim();
+  const err = document.getElementById('changePinErr');
+  if(cur !== state.data.pin || p1.length < 4 || p1 !== p2){
+    err.style.display = 'block';
+    return;
+  }
+  state.data.pin = p1;
+  await saveData();
+  state.view = 'admin';
+  render();
+  showToast('تم تغيير كلمة السر بنجاح');
+}
+
+function tryAdminLogin(){
+  const val = document.getElementById('pinField').value.trim();
+  if(val === state.data.pin){
+    state.view = 'admin';
+    state.pinAttemptError = false;
+    render();
+    startAdminChatList();
+  }else{
+    state.pinAttemptError = true;
+    render();
+  }
+}
+
+function openBooking(slotId){
+  state.selectedSlot = slotId;
+  render();
+}
+function closeBooking(){
+  state.selectedSlot = null;
+  render();
+}
+function closeBookingOnBackdrop(e){
+  if(e.target.classList.contains('modal-backdrop')) closeBooking();
+}
+
+async function confirmBooking(){
+  const name = document.getElementById('stName').value.trim();
+  const email = document.getElementById('stEmail').value.trim().toLowerCase();
+  const phone = document.getElementById('stPhone').value.trim();
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  if(!name || !emailOk){
+    document.getElementById('bookErr').style.display = 'block';
+    return;
+  }
+  // refresh first to avoid double-booking race
+  await refreshFromServer(true);
+  const s = state.data.slots.find(x=>x.id===state.selectedSlot);
+  if(!s){
+    showToast('عذرًا، هذا الميعاد لم يعد موجودًا');
+    state.selectedSlot = null;
+    render();
+    return;
+  }
+  s.bookings = s.bookings || [];
+  if(s.bookings.length >= MAX_SEATS){
+    showToast('عذرًا، اكتمل هذا الميعاد بالفعل');
+    state.selectedSlot = null;
+    render();
+    return;
+  }
+  const alreadyBookedSameDay = state.data.slots.some(x =>
+    x.date === s.date && (x.bookings || []).some(b => (b.email || '').toLowerCase() === email)
+  );
+  if(alreadyBookedSameDay){
+    showToast('عندك حجز بالفعل في نفس اليوم، مسموح بحجز واحد فقط في اليوم');
+    state.selectedSlot = null;
+    render();
+    return;
+  }
+  s.bookings.push({ id: uid(), name, email, phone, at: new Date().toISOString() });
+  upsertKnownStudent(name, phone);
+  await saveData();
+  try{ localStorage.setItem('meqraaMyEmail', email); }catch(e){}
+  state.lastBooking = { date: s.date, time: s.time, name };
+  state.selectedSlot = null;
+  state.view = 'confirm';
+  render();
+}
+
+function upsertKnownStudent(name, phone){
+  const p = (phone || '').trim();
+  if(!p) return;
+  state.data.students = state.data.students || [];
+  const existing = state.data.students.find(st => st.phone === p);
+  if(existing){
+    existing.name = name; // نحدّث الاسم لو الطالب كتبه مختلف شوية في مرة تانية
+  }else{
+    state.data.students.push({ name, phone: p });
+  }
+}
+
+function defaultNotifyMessage(slot){
+  const link = window.location.origin + window.location.pathname;
+  if(slot){
+    return `مرحبًا 👋\nتم إضافة ميعاد جديد في ${state.data.info.name || 'المقرأة'}:\n${fmtDate(slot.date)} - ${fmtTime(slot.time)}\n\nاحجز مكانك من هنا:\n${link}`;
+  }
+  return `مرحبًا 👋\nفيه مواعيد جديدة متاحة في ${state.data.info.name || 'المقرأة'}.\nاحجز مكانك من هنا:\n${link}`;
+}
+
+function getKnownStudents(){
+  return [...(state.data.students || [])].sort((a,b)=> a.name.localeCompare(b.name, 'ar'));
+}
+
+async function deleteKnownStudent(phone){
+  if(!confirm('حذف هذا الطالب من قائمة الأرقام المحفوظة؟ (ده مش هيلغي حجوزاته، بس هيشيله من قائمة الإرسال)')) return;
+  state.data.students = (state.data.students || []).filter(s => s.phone !== phone);
+  await saveData();
+  render();
+  showToast('تم حذف الرقم');
+}
+
+function goAdminStudents(){
+  state.view = 'adminStudents';
+  render();
+}
+function goBackFromAdminStudents(){
+  state.view = 'admin';
+  render();
+}
+function renderAdminStudents(app){
+  const students = getKnownStudents();
+  app.innerHTML = `
+    <div class="admin-topbar">
+      <h2>طلاب المقرأة</h2>
+      <button class="btn btn-outline btn-sm" onclick="goBackFromAdminStudents()">رجوع للوحة المعلم</button>
+    </div>
+    <div class="section-title">كل الطلاب المسجلين (${students.length})</div>
+    ${students.length ? `<div class="admin-card">${students.map(s=>`
+      <div class="roster-item" style="margin-bottom:8px;">
+        <span class="roster-info"><span class="name">${escapeHtml(s.name)}</span> — ${escapeHtml(s.phone)}</span>
+        <span class="roster-actions">
+          <a class="call-btn" href="tel:${escapeAttr(s.phone)}" title="اتصال بـ ${escapeAttr(s.name)}">📞</a>
+          <button class="btn btn-danger btn-sm" onclick="deleteKnownStudent('${escapeAttr(s.phone)}')">حذف</button>
+        </span>
+      </div>
+    `).join('')}</div>` : '<div class="empty-state"><div>لا يوجد طلاب مسجلين بعد</div></div>'}
+    <p style="font-size:0.78rem; color:var(--ink-soft); margin-top:14px; text-align:center;">
+      دي كل الأرقام اللي اتسجلت عبر الحجز ولو مرة، وبتفضل هنا حتى لو الحجز اتلغى أو الميعاد اتحذف.
+    </p>
+  `;
+}
+
+/* ---------------- الدروس والملفات (PDF) ---------------- */
+function goAdminLessons(){
+  state.view = 'adminLessons';
+  render();
+}
+function goBackFromAdminLessons(){
+  state.view = 'admin';
+  render();
+}
+
+async function addLesson(){
+  const title = document.getElementById('lessonTitle').value.trim();
+  const url = document.getElementById('lessonUrl').value.trim();
+  const err = document.getElementById('lessonErr');
+  const urlOk = /^https?:\/\/.+/i.test(url);
+  if(!title || !urlOk){
+    if(err) err.style.display = 'block';
+    return;
+  }
+  state.data.lessons = state.data.lessons || [];
+  state.data.lessons.push({ id: uid(), title, url, addedAt: new Date().toISOString() });
+  await saveData();
+  render();
+  showToast('تم إضافة الملف');
+}
+
+async function deleteLesson(id){
+  if(!confirm('حذف هذا الملف من صفحة الطلاب؟')) return;
+  state.data.lessons = (state.data.lessons || []).filter(l => l.id !== id);
+  await saveData();
+  render();
+  showToast('تم حذف الملف');
+}
+
+function renderAdminLessons(app){
+  const lessons = [...(state.data.lessons || [])].sort((a,b)=> (b.addedAt||'').localeCompare(a.addedAt||''));
+  app.innerHTML = `
+    <div class="admin-topbar">
+      <h2>الدروس والملفات</h2>
+      <button class="btn btn-outline btn-sm" onclick="goBackFromAdminLessons()">رجوع للوحة المعلم</button>
+    </div>
+    <div class="admin-card">
+      <div class="field">
+        <label for="lessonTitle">عنوان الملف (مثال: درس التجويد - الحلقة 1)</label>
+        <input id="lessonTitle" type="text" placeholder="اكتب عنوان الدرس أو المحاضرة">
+      </div>
+      <div class="field" style="margin-bottom:0;">
+        <label for="lessonUrl">رابط ملف الـ PDF</label>
+        <input id="lessonUrl" type="url" placeholder="https://drive.google.com/...">
+      </div>
+      <div class="err-msg" id="lessonErr">اكتب عنوان ورابط صحيح يبدأ بـ http:// أو https://</div>
+      <button class="btn btn-primary" style="margin-top:12px;" onclick="addLesson()">إضافة الملف</button>
+    </div>
+    <p style="font-size:0.78rem; color:var(--ink-soft); margin:-6px 0 18px; text-align:center;">
+      مفيش عندنا تخزين ملفات مباشر في الموقع، فارفع ملف الـ PDF على Google Drive الأول، خليه "يقدر أي حد معاه الرابط يشوفه"، وانسخ اللينك هنا.
+    </p>
+    <div class="section-title">الملفات الحالية (${lessons.length})</div>
+    ${lessons.length ? `<div class="admin-card">${lessons.map(l=>`
+      <div class="roster-item" style="margin-bottom:8px;">
+        <span class="roster-info"><span class="name">${escapeHtml(l.title)}</span></span>
+        <span class="roster-actions">
+          <a class="btn btn-outline btn-sm" href="${escapeAttr(l.url)}" target="_blank" rel="noopener">فتح</a>
+          <button class="btn btn-danger btn-sm" onclick="deleteLesson('${escapeAttr(l.id)}')">حذف</button>
+        </span>
+      </div>
+    `).join('')}</div>` : '<div class="empty-state"><div>لا توجد ملفات مضافة بعد</div></div>'}
+  `;
+}
+
+/* ---------------- البث المباشر (غرفة فيديو Jitsi) ---------------- */
+function makeRoomName(){
+  const base = (state.data.info.name || 'meqraa').replace(/[^a-zA-Z0-9\u0600-\u06FF]/g, '');
+  return 'meqraa-' + base + '-' + Math.random().toString(36).slice(2, 8) + Date.now().toString(36);
+}
+
+async function startLiveStream(){
+  const room = makeRoomName();
+  state.data.live = { active: true, room, startedAt: new Date().toISOString() };
+  await saveData();
+  goAdminLive();
+}
+
+async function endLiveStream(){
+  if(!confirm('إنهاء البث المباشر؟')) return;
+  state.data.live = { active: false, room: state.data.live.room || '' };
+  await saveData();
+  state.view = 'admin';
+  render();
+  showToast('تم إنهاء البث');
+}
+
+function goAdminLive(){
+  state.view = 'adminLive';
+  render();
+}
+function goBackFromAdminLive(){
+  state.view = 'admin';
+  render();
+}
+
+function renderAdminLive(app){
+  const live = state.data.live || {};
+  if(!live.active){
+    app.innerHTML = `
+      <div class="admin-topbar">
+        <h2>البث المباشر</h2>
+        <button class="btn btn-outline btn-sm" onclick="goBackFromAdminLive()">رجوع للوحة المعلم</button>
+      </div>
+      <div class="admin-card" style="text-align:center;">
+        <p style="margin-bottom:14px;">مفيش بث شغال دلوقتي. لما تدوس "ابدأ البث"، هتتفتحلك غرفة فيديو هنا على طول وهتظهر للطلاب فورًا.</p>
+        <button class="btn btn-primary" onclick="startLiveStream()">🔴 ابدأ بث مباشر</button>
+      </div>
+    `;
+    return;
+  }
+  app.innerHTML = `
+    <div class="admin-topbar">
+      <h2>🔴 البث شغال الآن</h2>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn btn-danger btn-sm" onclick="endLiveStream()">إنهاء البث</button>
+        <button class="btn btn-outline btn-sm" onclick="goBackFromAdminLive()">رجوع</button>
+      </div>
+    </div>
+    <div class="live-frame-wrap">
+      <iframe src="https://meet.jit.si/${encodeURIComponent(live.room)}#config.prejoinPageEnabled=false"
+        allow="camera; microphone; fullscreen; display-capture; autoplay" allowfullscreen></iframe>
+    </div>
+    <p style="font-size:0.78rem; color:var(--ink-soft); margin-top:12px; text-align:center;">
+      لو الكاميرا أو المايك ما اشتغلوش تلقائي، وافق على إذن المتصفح لما يطلب منك.
+    </p>
+  `;
+}
+
+function normalizePhoneForWhatsApp(phone){
+  let digits = (phone || '').replace(/\D/g, '');
+  if(digits.startsWith('00')){
+    digits = digits.slice(2);
+  }else if(digits.startsWith('0') && digits.length === 11){
+    digits = '2' + digits; // رقم مصري محلي 01xxxxxxxxx -> 201xxxxxxxxx (كود +20)
+  }
+  return digits;
+}
+
+function sendWhatsApp(phone){
+  const box = document.getElementById('notifyMessageBox');
+  const text = box ? box.value : state.notifyMessage;
+  const num = normalizePhoneForWhatsApp(phone);
+  const url = 'https://wa.me/' + num + '?text=' + encodeURIComponent(text);
+  window.open(url, '_blank');
+}
+
+function goAdminNotify(prefillMessage){
+  state.notifyMessage = prefillMessage || defaultNotifyMessage(null);
+  state.view = 'adminNotify';
+  render();
+}
+function goBackFromAdminNotify(){
+  state.view = 'admin';
+  render();
+}
+
+function renderAdminNotify(app){
+  const students = getKnownStudents();
+  app.innerHTML = `
+    <div class="admin-topbar">
+      <h2>إشعار واتساب للطلاب</h2>
+      <button class="btn btn-outline btn-sm" onclick="goBackFromAdminNotify()">رجوع للوحة المعلم</button>
+    </div>
+    <div class="admin-card">
+      <div class="field" style="margin-bottom:10px;">
+        <label>نص الرسالة (تقدر تعدّلها)</label>
+        <textarea id="notifyMessageBox" rows="5" style="width:100%; font-family:inherit; font-size:0.88rem; padding:9px 10px; border:1px solid var(--paper-deep); border-radius:8px; resize:vertical;">${escapeHtml(state.notifyMessage)}</textarea>
+      </div>
+      <button class="btn btn-outline btn-sm" onclick="copyNotifyMessage()">📋 نسخ الرسالة (للصقها في جروب الواتساب)</button>
+    </div>
+    <div class="section-title">أرسل لكل طالب لوحده (${students.length})</div>
+    ${students.length ? `
+      <button class="btn btn-outline btn-sm" style="margin-bottom:10px;" onclick="copyAllNumbers()">📋 نسخ كل الأرقام (لعمل قائمة بث)</button>
+      <div class="admin-card">${students.map(s=>`
+      <div class="roster-item" style="margin-bottom:8px;">
+        <span class="roster-info"><span class="name">${escapeHtml(s.name)}</span> — ${escapeHtml(s.phone)}</span>
+        <span class="roster-actions">
+          <button class="btn btn-primary btn-sm" onclick="sendWhatsApp('${escapeAttr(s.phone)}')">📲 واتساب</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteKnownStudent('${escapeAttr(s.phone)}')">حذف</button>
+        </span>
+      </div>
+    `).join('')}</div>` : '<div class="empty-state"><div>لا يوجد طلاب لديهم رقم هاتف مسجل بعد</div></div>'}
+    <p style="font-size:0.78rem; color:var(--ink-soft); margin-top:14px; text-align:center;">
+      هتفتح واتساب لكل طالب لوحده برسالة جاهزة — تدوس إرسال يدويًا في كل مرة.
+    </p>
+  `;
+}
+
+function copyNotifyMessage(){
+  const box = document.getElementById('notifyMessageBox');
+  const text = box ? box.value : state.notifyMessage;
+  navigator.clipboard.writeText(text).then(()=>{
+    showToast('تم نسخ الرسالة، افتح واتساب والصقها');
+  }).catch(()=>{
+    showToast('تعذر النسخ التلقائي، انسخ النص يدويًا من الصندوق');
+  });
+}
+
+function copyAllNumbers(){
+  const students = getKnownStudents();
+  const text = students.map(s=> s.name + ': ' + s.phone).join('\n');
+  navigator.clipboard.writeText(text).then(()=>{
+    showToast('تم نسخ كل الأرقام');
+  }).catch(()=>{
+    showToast('تعذر النسخ التلقائي');
+  });
+}
+
+async function addSlot(){
+  const date = document.getElementById('newDate').value;
+  const time = document.getElementById('newTime').value;
+  const note = document.getElementById('newNote').value.trim();
+  if(!date || !time){
+    document.getElementById('addErr').style.display = 'block';
+    return;
+  }
+  const newSlot = { id: uid(), date, time, duration: SLOT_MINUTES, note, bookings: [] };
+  state.data.slots.push(newSlot);
+  await saveData();
+  showToast('تم إضافة الميعاد');
+  goAdminNotify(defaultNotifyMessage(newSlot));
+}
+
+async function deleteSlot(id){
+  state.data.slots = state.data.slots.filter(s=>s.id!==id);
+  await saveData();
+  render();
+  showToast('تم حذف الميعاد');
+}
+
+async function cancelBooking(slotId, bookingId){
+  const s = state.data.slots.find(x=>x.id===slotId);
+  if(s){ s.bookings = (s.bookings||[]).filter(b=>b.id!==bookingId); }
+  await saveData();
+  render();
+  showToast('تم إلغاء الحجز');
+}
+
+async function saveInfo(){
+  state.data.info.name = document.getElementById('infoName').value.trim() || 'المقرأة';
+  state.data.info.desc = document.getElementById('infoDesc').value.trim();
+  await saveData();
+  showToast('تم حفظ البيانات');
+}
+
+async function refreshFromServer(silent){
+  if(!db) return;
+  try{
+    const snap = await db.collection(FIRESTORE_COLLECTION).doc(FIRESTORE_DOC).get();
+    if(snap.exists){
+      state.data = snap.data();
+      if(!state.data.students){ state.data.students = []; }
+      if(!state.data.lessons){ state.data.lessons = []; }
+      if(!state.data.live){ state.data.live = { active:false, room:'' }; }
+      if(!silent && (state.view==='student')) render();
+    }
+  }catch(e){ /* ignore */ }
+}
+
+document.addEventListener('click', (e)=>{
+  if(state.adminMenuOpen && !e.target.closest('.admin-menu-wrap')){
+    state.adminMenuOpen = false;
+    render();
+  }
+});
+
+window.addEventListener('hashchange', ()=>{
+  if(window.location.hash === TEACHER_HASH && state.view === 'student'){
+    goAdminEntry();
+  }
+});
+
+/* التحديث بين الأجهزة بيحصل فورًا عن طريق Firestore onSnapshot في loadData()،
+   بس بنعمل تحديث إضافي وقت الرجوع للصفحة كإجراء احتياطي */
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) refreshFromServer(true).then(render); });
+
+loadData();
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('service-worker.js').catch(()=>{});
+  });
+}
+</script>
+</body>
+</html>
