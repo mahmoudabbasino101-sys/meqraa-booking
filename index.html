@@ -43,23 +43,6 @@
   }
   .wrap{max-width:640px; margin:0 auto; padding:0 18px 60px; overflow-x:hidden;}
 
-  .live-banner{
-    background:var(--ink); border-radius:var(--radius); padding:14px; margin-bottom:22px;
-    box-shadow:var(--shadow);
-  }
-  .live-banner-head{
-    color:#fff; font-weight:700; font-size:1rem; margin-bottom:10px; text-align:center;
-    animation:live-pulse 1.6s ease-in-out infinite;
-  }
-  @keyframes live-pulse{ 0%,100%{opacity:1;} 50%{opacity:0.55;} }
-  @media (prefers-reduced-motion:reduce){ .live-banner-head{ animation:none; } }
-  .live-frame-wrap{
-    position:relative; width:100%; padding-top:62%; border-radius:12px; overflow:hidden;
-  }
-  .live-frame-wrap iframe{
-    position:absolute; inset:0; width:100%; height:100%; border:0;
-  }
-
   /* ---------- Header ---------- */
   header.app-head{
     text-align:center;
@@ -369,6 +352,8 @@ const firebaseConfig = {
 const FIRESTORE_COLLECTION = 'meqraa';
 const FIRESTORE_DOC = 'data';
 const CHATS_COLLECTION = 'meqraa_chats';
+const CLOUDINARY_CLOUD_NAME = 'amisc5g7';
+const CLOUDINARY_UPLOAD_PRESET = 'meqraa_lessons';
 
 let db = null;
 let unsubscribeSnapshot = null;
@@ -487,7 +472,7 @@ const starSVG = `<svg class="star-mark" viewBox="0 0 100 100" xmlns="http://www.
 </svg>`;
 
 function defaultData(){
-  return { info: { name: 'المقرأة', desc: 'سجّل حضورك في الوقت المناسب لك' }, pin: null, slots: [], students: [], lessons: [], live: { active:false, room:'' } };
+  return { info: { name: 'المقرأة', desc: 'سجّل حضورك في الوقت المناسب لك' }, pin: null, slots: [], students: [], lessons: [] };
 }
 
 function renderConfigWarning(){
@@ -512,7 +497,6 @@ async function loadData(){
     state.data = snap.exists ? snap.data() : defaultData();
     if(!state.data.students){ state.data.students = []; }
     if(!state.data.lessons){ state.data.lessons = []; }
-    if(!state.data.live){ state.data.live = { active:false, room:'' }; }
     if(!snap.exists){ await docRef.set(state.data); }
 
     // تحديث فوري على كل الأجهزة لحظة حدوث أي حجز أو تعديل
@@ -521,7 +505,6 @@ async function loadData(){
       const newData = doc.data();
       if(!newData.students){ newData.students = []; }
       if(!newData.lessons){ newData.lessons = []; }
-      if(!newData.live){ newData.live = { active:false, room:'' }; }
       notifyIfNewSlots(state.data, newData);
       state.data = newData;
       if(state.view === 'student' || state.view === 'admin'){ render(); }
@@ -620,7 +603,6 @@ function render(){
   if(state.view === 'adminNotify') return renderAdminNotify(app);
   if(state.view === 'adminStudents') return renderAdminStudents(app);
   if(state.view === 'adminLessons') return renderAdminLessons(app);
-  if(state.view === 'adminLive') return renderAdminLive(app);
   if(state.view === 'adminPastSlots') return renderAdminPastSlots(app);
   if(state.view === 'adminChats') return renderAdminChatList(app);
   if(state.view === 'adminChatThread') return renderAdminChatThread(app);
@@ -674,20 +656,12 @@ function renderStudent(app){
           <div class="slot-main">
             <div class="slot-time">${escapeHtml(l.title)}</div>
           </div>
-          <a class="btn btn-primary btn-sm" href="${escapeAttr(l.url)}" target="_blank" rel="noopener">فتح الملف</a>
+          <span class="roster-actions">
+            <a class="btn btn-outline btn-sm" href="${escapeAttr(l.url)}" target="_blank" rel="noopener">فتح</a>
+            <a class="btn btn-primary btn-sm" href="${escapeAttr(cloudinaryDownloadUrl(l.url))}" target="_blank" rel="noopener">تحميل</a>
+          </span>
         </div>
       `).join('')}
-    </div>
-  ` : '';
-
-  const live = state.data.live || {};
-  const liveHtml = live.active ? `
-    <div class="live-banner">
-      <div class="live-banner-head">🔴 بث مباشر الآن</div>
-      <div class="live-frame-wrap">
-        <iframe src="https://meet.jit.si/${encodeURIComponent(live.room)}#config.prejoinPageEnabled=false"
-          allow="camera; microphone; fullscreen; display-capture; autoplay" allowfullscreen></iframe>
-      </div>
     </div>
   ` : '';
 
@@ -703,7 +677,6 @@ function renderStudent(app){
         ${notifButtonHtml()}
       </div>
     </header>
-    ${liveHtml}
     <div class="board">${boardHtml}</div>
     ${lessonsHtml}
     ${bookingModalHtml()}
@@ -927,7 +900,6 @@ function renderAdmin(app){
           <button class="admin-menu-item" onclick="adminMenuGo('goAdminChats')">الرسائل${state.chatUnreadTotal ? `<span class="chat-badge">${state.chatUnreadTotal}</span>` : ''}</button>
           <button class="admin-menu-item" onclick="adminMenuGo('goAdminStudents')">طلاب المقرأة</button>
           <button class="admin-menu-item" onclick="adminMenuGo('goAdminLessons')">الدروس والملفات</button>
-          <button class="admin-menu-item" onclick="adminMenuGo('goAdminLive')">${state.data.live && state.data.live.active ? '🔴 البث شغال الآن' : 'البث المباشر'}</button>
           <button class="admin-menu-item" onclick="state.adminMenuOpen=false; goAdminNotify();">إشعار واتساب للطلاب</button>
           <button class="admin-menu-item" onclick="adminMenuGo('goAdminPastSlots')">مواعيد سابقة${pastCount ? `<span class="chat-badge">${pastCount}</span>` : ''}</button>
           <button class="admin-menu-item" onclick="adminMenuGo('goChangePin')">تغيير كلمة السر</button>
@@ -1624,20 +1596,49 @@ function goBackFromAdminLessons(){
   render();
 }
 
+function cloudinaryDownloadUrl(url){
+  return url.replace('/upload/', '/upload/fl_attachment/');
+}
+
 async function addLesson(){
   const title = document.getElementById('lessonTitle').value.trim();
-  const url = document.getElementById('lessonUrl').value.trim();
+  const fileInput = document.getElementById('lessonFile');
+  const file = fileInput.files && fileInput.files[0];
   const err = document.getElementById('lessonErr');
-  const urlOk = /^https?:\/\/.+/i.test(url);
-  if(!title || !urlOk){
-    if(err) err.style.display = 'block';
+  const btn = document.getElementById('lessonAddBtn');
+
+  if(!title || !file){
+    if(err){ err.textContent = 'اكتب عنوان واختر ملف PDF'; err.style.display = 'block'; }
     return;
   }
-  state.data.lessons = state.data.lessons || [];
-  state.data.lessons.push({ id: uid(), title, url, addedAt: new Date().toISOString() });
-  await saveData();
-  render();
-  showToast('تم إضافة الملف');
+  if(err) err.style.display = 'none';
+
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'جارٍ الرفع...';
+
+  try{
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+    const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/raw/upload`, {
+      method: 'POST',
+      body: fd
+    });
+    const data = await res.json();
+    if(!res.ok || !data.secure_url){
+      throw new Error((data.error && data.error.message) || 'فشل الرفع');
+    }
+    state.data.lessons = state.data.lessons || [];
+    state.data.lessons.push({ id: uid(), title, url: data.secure_url, addedAt: new Date().toISOString() });
+    await saveData();
+    render();
+    showToast('تم رفع الملف بنجاح');
+  }catch(e){
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+    if(err){ err.textContent = 'تعذر رفع الملف: ' + e.message; err.style.display = 'block'; }
+  }
 }
 
 async function deleteLesson(id){
@@ -1661,14 +1662,14 @@ function renderAdminLessons(app){
         <input id="lessonTitle" type="text" placeholder="اكتب عنوان الدرس أو المحاضرة">
       </div>
       <div class="field" style="margin-bottom:0;">
-        <label for="lessonUrl">رابط ملف الـ PDF</label>
-        <input id="lessonUrl" type="url" placeholder="https://drive.google.com/...">
+        <label for="lessonFile">اختر ملف PDF من موبايلك</label>
+        <input id="lessonFile" type="file" accept="application/pdf">
       </div>
-      <div class="err-msg" id="lessonErr">اكتب عنوان ورابط صحيح يبدأ بـ http:// أو https://</div>
-      <button class="btn btn-primary" style="margin-top:12px;" onclick="addLesson()">إضافة الملف</button>
+      <div class="err-msg" id="lessonErr">اكتب عنوان واختر ملف PDF</div>
+      <button class="btn btn-primary" id="lessonAddBtn" style="margin-top:12px;" onclick="addLesson()">رفع الملف</button>
     </div>
     <p style="font-size:0.78rem; color:var(--ink-soft); margin:-6px 0 18px; text-align:center;">
-      مفيش عندنا تخزين ملفات مباشر في الموقع، فارفع ملف الـ PDF على Google Drive الأول، خليه "يقدر أي حد معاه الرابط يشوفه"، وانسخ اللينك هنا.
+      الملف بيتخزن تلقائيًا، وبيظهر للطلاب فورًا.
     </p>
     <div class="section-title">الملفات الحالية (${lessons.length})</div>
     ${lessons.length ? `<div class="admin-card">${lessons.map(l=>`
@@ -1676,74 +1677,11 @@ function renderAdminLessons(app){
         <span class="roster-info"><span class="name">${escapeHtml(l.title)}</span></span>
         <span class="roster-actions">
           <a class="btn btn-outline btn-sm" href="${escapeAttr(l.url)}" target="_blank" rel="noopener">فتح</a>
+          <a class="btn btn-outline btn-sm" href="${escapeAttr(cloudinaryDownloadUrl(l.url))}" target="_blank" rel="noopener">تحميل</a>
           <button class="btn btn-danger btn-sm" onclick="deleteLesson('${escapeAttr(l.id)}')">حذف</button>
         </span>
       </div>
     `).join('')}</div>` : '<div class="empty-state"><div>لا توجد ملفات مضافة بعد</div></div>'}
-  `;
-}
-
-/* ---------------- البث المباشر (غرفة فيديو Jitsi) ---------------- */
-function makeRoomName(){
-  const base = (state.data.info.name || 'meqraa').replace(/[^a-zA-Z0-9\u0600-\u06FF]/g, '');
-  return 'meqraa-' + base + '-' + Math.random().toString(36).slice(2, 8) + Date.now().toString(36);
-}
-
-async function startLiveStream(){
-  const room = makeRoomName();
-  state.data.live = { active: true, room, startedAt: new Date().toISOString() };
-  await saveData();
-  goAdminLive();
-}
-
-async function endLiveStream(){
-  if(!confirm('إنهاء البث المباشر؟')) return;
-  state.data.live = { active: false, room: state.data.live.room || '' };
-  await saveData();
-  state.view = 'admin';
-  render();
-  showToast('تم إنهاء البث');
-}
-
-function goAdminLive(){
-  state.view = 'adminLive';
-  render();
-}
-function goBackFromAdminLive(){
-  state.view = 'admin';
-  render();
-}
-
-function renderAdminLive(app){
-  const live = state.data.live || {};
-  if(!live.active){
-    app.innerHTML = `
-      <div class="admin-topbar">
-        <h2>البث المباشر</h2>
-        <button class="btn btn-outline btn-sm" onclick="goBackFromAdminLive()">رجوع للوحة المعلم</button>
-      </div>
-      <div class="admin-card" style="text-align:center;">
-        <p style="margin-bottom:14px;">مفيش بث شغال دلوقتي. لما تدوس "ابدأ البث"، هتتفتحلك غرفة فيديو هنا على طول وهتظهر للطلاب فورًا.</p>
-        <button class="btn btn-primary" onclick="startLiveStream()">🔴 ابدأ بث مباشر</button>
-      </div>
-    `;
-    return;
-  }
-  app.innerHTML = `
-    <div class="admin-topbar">
-      <h2>🔴 البث شغال الآن</h2>
-      <div style="display:flex; gap:8px; flex-wrap:wrap;">
-        <button class="btn btn-danger btn-sm" onclick="endLiveStream()">إنهاء البث</button>
-        <button class="btn btn-outline btn-sm" onclick="goBackFromAdminLive()">رجوع</button>
-      </div>
-    </div>
-    <div class="live-frame-wrap">
-      <iframe src="https://meet.jit.si/${encodeURIComponent(live.room)}#config.prejoinPageEnabled=false"
-        allow="camera; microphone; fullscreen; display-capture; autoplay" allowfullscreen></iframe>
-    </div>
-    <p style="font-size:0.78rem; color:var(--ink-soft); margin-top:12px; text-align:center;">
-      لو الكاميرا أو المايك ما اشتغلوش تلقائي، وافق على إذن المتصفح لما يطلب منك.
-    </p>
   `;
 }
 
@@ -1872,7 +1810,6 @@ async function refreshFromServer(silent){
       state.data = snap.data();
       if(!state.data.students){ state.data.students = []; }
       if(!state.data.lessons){ state.data.lessons = []; }
-      if(!state.data.live){ state.data.live = { active:false, room:'' }; }
       if(!silent && (state.view==='student')) render();
     }
   }catch(e){ /* ignore */ }
