@@ -1596,6 +1596,19 @@ function goBackFromAdminLessons(){
   render();
 }
 
+function onLessonFileChosen(){
+  const input = document.getElementById('lessonFile');
+  const label = document.getElementById('lessonFileName');
+  const file = input.files && input.files[0];
+  if(!label) return;
+  if(!file){
+    label.textContent = '';
+    return;
+  }
+  const sizeMb = (file.size / (1024*1024)).toFixed(1);
+  label.textContent = `✅ الملف المختار: ${file.name} (${sizeMb} ميجا)`;
+}
+
 function cloudinaryDownloadUrl(url){
   return url.replace('/upload/', '/upload/fl_attachment/');
 }
@@ -1663,7 +1676,8 @@ function renderAdminLessons(app){
       </div>
       <div class="field" style="margin-bottom:0;">
         <label for="lessonFile">اختر ملف PDF من موبايلك</label>
-        <input id="lessonFile" type="file" accept="application/pdf">
+        <input id="lessonFile" type="file" accept="application/pdf,.pdf" onchange="onLessonFileChosen()">
+        <div id="lessonFileName" style="font-size:0.8rem; color:var(--ink-soft); margin-top:6px;"></div>
       </div>
       <div class="err-msg" id="lessonErr">اكتب عنوان واختر ملف PDF</div>
       <button class="btn btn-primary" id="lessonAddBtn" style="margin-top:12px;" onclick="addLesson()">رفع الملف</button>
