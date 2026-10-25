@@ -455,6 +455,7 @@ let state = {
   activeChatMessages: [],
   adminMenuOpen: false,
   notifyMessage: '',
+  lessonSelectedFile: null,
 };
 
 const starSVG = `<svg class="star-mark" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
@@ -1589,6 +1590,7 @@ function renderAdminStudents(app){
 /* ---------------- الدروس والملفات (PDF) ---------------- */
 function goAdminLessons(){
   state.view = 'adminLessons';
+  state.lessonSelectedFile = null;
   render();
 }
 function goBackFromAdminLessons(){
@@ -1600,6 +1602,7 @@ function onLessonFileChosen(){
   const input = document.getElementById('lessonFile');
   const label = document.getElementById('lessonFileName');
   const file = input.files && input.files[0];
+  state.lessonSelectedFile = file || null;
   if(!label) return;
   if(!file){
     label.textContent = '';
@@ -1616,7 +1619,7 @@ function cloudinaryDownloadUrl(url){
 async function addLesson(){
   const title = document.getElementById('lessonTitle').value.trim();
   const fileInput = document.getElementById('lessonFile');
-  const file = fileInput.files && fileInput.files[0];
+  const file = state.lessonSelectedFile || (fileInput.files && fileInput.files[0]);
   const err = document.getElementById('lessonErr');
   const btn = document.getElementById('lessonAddBtn');
 
@@ -1676,7 +1679,7 @@ function renderAdminLessons(app){
       </div>
       <div class="field" style="margin-bottom:0;">
         <label for="lessonFile">اختر ملف PDF من موبايلك</label>
-        <input id="lessonFile" type="file" accept="application/pdf,.pdf" onchange="onLessonFileChosen()">
+        <input id="lessonFile" type="file" accept="application/pdf,.pdf">
         <div id="lessonFileName" style="font-size:0.8rem; color:var(--ink-soft); margin-top:6px;"></div>
       </div>
       <div class="err-msg" id="lessonErr">اكتب عنوان واختر ملف PDF</div>
@@ -1697,6 +1700,10 @@ function renderAdminLessons(app){
       </div>
     `).join('')}</div>` : '<div class="empty-state"><div>لا توجد ملفات مضافة بعد</div></div>'}
   `;
+  const fileInput = document.getElementById('lessonFile');
+  if(fileInput){
+    fileInput.addEventListener('change', onLessonFileChosen);
+  }
 }
 
 function normalizePhoneForWhatsApp(phone){
