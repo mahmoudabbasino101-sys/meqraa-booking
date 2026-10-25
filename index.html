@@ -1602,6 +1602,7 @@ function onLessonFileChosen(){
   const input = document.getElementById('lessonFile');
   const label = document.getElementById('lessonFileName');
   const file = input.files && input.files[0];
+  alert('تشخيص: دخل الحدث. عدد الملفات = ' + (input.files ? input.files.length : 'لا يوجد input.files'));
   state.lessonSelectedFile = file || null;
   if(!label) return;
   if(!file){
@@ -1622,6 +1623,8 @@ async function addLesson(){
   const file = state.lessonSelectedFile || (fileInput.files && fileInput.files[0]);
   const err = document.getElementById('lessonErr');
   const btn = document.getElementById('lessonAddBtn');
+
+  alert('تشخيص عند الرفع:\nالعنوان: "' + title + '"\nstate.lessonSelectedFile: ' + (state.lessonSelectedFile ? state.lessonSelectedFile.name : 'فاضي') + '\ninput.files: ' + (fileInput.files && fileInput.files.length));
 
   if(!title || !file){
     if(err){ err.textContent = 'اكتب عنوان واختر ملف PDF'; err.style.display = 'block'; }
@@ -1852,6 +1855,12 @@ window.addEventListener('hashchange', ()=>{
 /* التحديث بين الأجهزة بيحصل فورًا عن طريق Firestore onSnapshot في loadData()،
    بس بنعمل تحديث إضافي وقت الرجوع للصفحة كإجراء احتياطي */
 document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) refreshFromServer(true).then(render); });
+
+/* ===== كود تشخيص مؤقت: هيوري أي خطأ برمجي في رسالة واضحة على الشاشة =====
+   هنشيله بعد ما نلاقي المشكلة */
+window.addEventListener('error', function(e){
+  alert('حصل خطأ برمجي:\n' + e.message + '\nفي سطر: ' + e.lineno);
+});
 
 loadData();
 
